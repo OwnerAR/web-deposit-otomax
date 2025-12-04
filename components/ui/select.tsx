@@ -132,7 +132,7 @@ export function SelectContent({ className, children, ...props }: SelectContentPr
 }
 
 export interface SelectItemProps
-  extends React.HTMLAttributes<HTMLDivElement> {
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, 'onSelect'> {
   value: string;
   onSelect?: (value: string) => void;
 }
