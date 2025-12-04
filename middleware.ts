@@ -26,22 +26,18 @@ export function middleware(request: NextRequest) {
   }
   
   if (authHeader) {
-    // Extract token (handle both "Bearer token" and plain token)
-    const token = authHeader.startsWith('Bearer ') 
-      ? authHeader.substring(7) 
-      : authHeader;
-    
-    // Logging
+    // Store Authorization header AS-IS (don't modify anything)
+    // This ensures the exact format received is preserved and sent to backend
     if (shouldLog) {
-      const maskedToken = token.length > 20 
-        ? `${token.substring(0, 20)}...` 
-        : token;
-      console.log('[Middleware] Token extracted and stored in cookie:', maskedToken);
+      const maskedHeader = authHeader.length > 20 
+        ? `${authHeader.substring(0, 20)}...` 
+        : authHeader;
+      console.log('[Middleware] Authorization header stored in cookie (as-is):', maskedHeader);
     }
     
-    // Set token in httpOnly cookie for security
+    // Set Authorization header AS-IS in httpOnly cookie
     // This cookie will be available for all subsequent requests
-    response.cookies.set('auth_token', token, {
+    response.cookies.set('auth_token', authHeader, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',

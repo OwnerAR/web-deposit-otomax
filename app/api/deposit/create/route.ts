@@ -21,20 +21,21 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Priority 2: Get token from cookie (set by /api/auth/set-token endpoint)
+    // Priority 2: Get Authorization header from cookie (stored by middleware AS-IS)
     if (!authHeader) {
-      const tokenFromCookie = request.cookies.get('auth_token')?.value;
-      if (tokenFromCookie) {
-        authHeader = `Bearer ${tokenFromCookie}`;
+      const authHeaderFromCookie = request.cookies.get('auth_token')?.value;
+      if (authHeaderFromCookie) {
+        // Use Authorization header from cookie AS-IS (no modification)
+        authHeader = authHeaderFromCookie;
         if (shouldLog) {
-          const maskedToken = tokenFromCookie.length > 20 
-            ? `${tokenFromCookie.substring(0, 20)}...` 
-            : tokenFromCookie;
-          console.log('[API /deposit/create] Token from cookie:', maskedToken);
+          const maskedHeader = authHeaderFromCookie.length > 30 
+            ? `${authHeaderFromCookie.substring(0, 30)}...` 
+            : authHeaderFromCookie;
+          console.log('[API /deposit/create] Authorization header from cookie (as-is):', maskedHeader);
         }
       } else {
         if (shouldLog) {
-          console.log('[API /deposit/create] No token found in cookie');
+          console.log('[API /deposit/create] No Authorization header found in cookie');
         }
       }
     }
