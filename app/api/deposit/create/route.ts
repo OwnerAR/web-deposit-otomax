@@ -8,11 +8,16 @@ export async function POST(request: NextRequest) {
     // Logging (can be enabled via ENABLE_AUTH_LOGGING env var, or auto-enabled in development)
     const shouldLog = process.env.ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
     
-    // Priority 1: Get Authorization header from current request (if sent directly)
+    if (shouldLog) {
+      console.log('[API /deposit/create] ===== Request received =====');
+      console.log('[API /deposit/create] All request headers:', Object.fromEntries(request.headers.entries()));
+    }
+    
+    // Priority 1: Get Authorization header from current request (forwarded by middleware)
     let authHeader = request.headers.get('authorization');
     
     if (shouldLog) {
-      console.log('[API /deposit/create] Authorization header from request:', authHeader ? '✅ Present' : '❌ Not present');
+      console.log('[API /deposit/create] Authorization header from request headers:', authHeader ? '✅ Present' : '❌ Not present');
       if (authHeader) {
         const maskedHeader = authHeader.length > 30 
           ? `${authHeader.substring(0, 30)}...` 
@@ -23,6 +28,11 @@ export async function POST(request: NextRequest) {
     
     // Priority 2: Get Authorization header from cookie (stored by middleware AS-IS)
     if (!authHeader) {
+      const allCookies = request.cookies.getAll();
+      if (shouldLog) {
+        console.log('[API /deposit/create] All cookies:', allCookies.map(c => ({ name: c.name, hasValue: !!c.value })));
+      }
+      
       const authHeaderFromCookie = request.cookies.get('auth_token')?.value;
       if (authHeaderFromCookie) {
         // Use Authorization header from cookie AS-IS (no modification)
@@ -35,7 +45,7 @@ export async function POST(request: NextRequest) {
         }
       } else {
         if (shouldLog) {
-          console.log('[API /deposit/create] No Authorization header found in cookie');
+          console.log('[API /deposit/create] ❌ No Authorization header found in cookie');
         }
       }
     }

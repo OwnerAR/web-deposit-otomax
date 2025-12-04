@@ -5,8 +5,6 @@ import { NextRequest, NextResponse } from 'next/server';
  * and store it in a cookie for subsequent API requests
  */
 export function middleware(request: NextRequest) {
-  const response = NextResponse.next();
-
   // Check if Authorization header is present (from Android WebView)
   const authHeader = request.headers.get('authorization');
   
@@ -15,6 +13,7 @@ export function middleware(request: NextRequest) {
   
   if (shouldLog) {
     console.log('[Middleware] Request URL:', request.url);
+    console.log('[Middleware] Request path:', request.nextUrl.pathname);
     console.log('[Middleware] Authorization header received:', authHeader ? '✅ Present' : '❌ Not present');
     if (authHeader) {
       // Mask token for security (show first 20 chars only)
@@ -25,9 +24,11 @@ export function middleware(request: NextRequest) {
     }
   }
   
+  // Create response
+  const response = NextResponse.next();
+  
   if (authHeader) {
-    // Store Authorization header AS-IS (don't modify anything)
-    // This ensures the exact format received is preserved and sent to backend
+    // Store Authorization header AS-IS in httpOnly cookie (for fallback)
     if (shouldLog) {
       const maskedHeader = authHeader.length > 20 
         ? `${authHeader.substring(0, 20)}...` 
@@ -36,7 +37,6 @@ export function middleware(request: NextRequest) {
     }
     
     // Set Authorization header AS-IS in httpOnly cookie
-    // This cookie will be available for all subsequent requests
     response.cookies.set('auth_token', authHeader, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -44,22 +44,33 @@ export function middleware(request: NextRequest) {
       maxAge: 60 * 60 * 24, // 24 hours
       path: '/',
     });
+    
+    // CRITICAL: Forward Authorization header directly to API routes
+    // This ensures the header is available even if cookies don't work
+    if (request.nextUrl.pathname.startsWith('/api/')) {
+      response.headers.set('authorization', authHeader);
+      if (shouldLog) {
+        console.log('[Middleware] Authorization header forwarded to API route:', request.nextUrl.pathname);
+      }
+    }
   }
 
   return response;
 }
 
 // Only run middleware on specific paths
+// IMPORTANT: Include /api/* paths so middleware can forward Authorization header to API routes
 export const config = {
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
-     * - api (API routes)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * 
+     * Note: We include /api/* paths so middleware can forward Authorization header
      */
-    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };
 
