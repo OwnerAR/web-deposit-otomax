@@ -5,19 +5,58 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 export async function POST(request: NextRequest) {
   try {
+    const isDev = process.env.NODE_ENV !== 'production';
+    
     // Priority 1: Get Authorization header from current request (if sent directly)
     let authHeader = request.headers.get('authorization');
+    
+    if (isDev) {
+      console.log('[API /deposit/create] Authorization header from request:', authHeader ? '✅ Present' : '❌ Not present');
+      if (authHeader) {
+        const maskedHeader = authHeader.length > 30 
+          ? `${authHeader.substring(0, 30)}...` 
+          : authHeader;
+        console.log('[API /deposit/create] Authorization header value:', maskedHeader);
+      }
+    }
     
     // Priority 2: Get token from cookie (set by /api/auth/set-token endpoint)
     if (!authHeader) {
       const tokenFromCookie = request.cookies.get('auth_token')?.value;
       if (tokenFromCookie) {
         authHeader = `Bearer ${tokenFromCookie}`;
+        if (isDev) {
+          const maskedToken = tokenFromCookie.length > 20 
+            ? `${tokenFromCookie.substring(0, 20)}...` 
+            : tokenFromCookie;
+          console.log('[API /deposit/create] Token from cookie:', maskedToken);
+        }
+      } else {
+        if (isDev) {
+          console.log('[API /deposit/create] No token found in cookie');
+        }
       }
     }
     
     // Get request body
     const body: CreateDepositRequest = await request.json();
+
+    // Final Authorization header to send to backend
+    const finalAuthHeader = authHeader;
+    if (isDev) {
+      console.log('[API /deposit/create] Final Authorization header to backend:', finalAuthHeader ? '✅ Will be sent' : '❌ Not sending');
+      if (finalAuthHeader) {
+        const maskedHeader = finalAuthHeader.length > 30 
+          ? `${finalAuthHeader.substring(0, 30)}...` 
+          : finalAuthHeader;
+        console.log('[API /deposit/create] Final Authorization header value:', maskedHeader);
+      }
+      console.log('[API /deposit/create] Request body:', {
+        amount: body.amount,
+        payment_method: body.payment_method,
+        phone_number: body.phone_number ? '***' : undefined,
+      });
+    }
 
     // Forward request to backend API with Authorization header
     const response = await fetch(`${API_BASE_URL}/api/deposit/create`, {
@@ -25,7 +64,7 @@ export async function POST(request: NextRequest) {
       headers: {
         'Content-Type': 'application/json',
         // Forward Authorization header if present
-        ...(authHeader && { Authorization: authHeader }),
+        ...(finalAuthHeader && { Authorization: finalAuthHeader }),
       },
       body: JSON.stringify(body),
     });

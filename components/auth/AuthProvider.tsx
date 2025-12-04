@@ -12,6 +12,12 @@ import { setupPostMessageListener, getAuthToken, setAuthToken } from '@/lib/auth
  */
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
+    const isDev = process.env.NODE_ENV !== 'production';
+    
+    if (isDev) {
+      console.log('[AuthProvider] Initializing auth provider...');
+    }
+    
     // Setup postMessage listener for Android WebView
     setupPostMessageListener();
 
@@ -21,7 +27,14 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     
     // If token from URL, store it in sessionStorage for client-side use
     if (tokenFromUrl) {
+      if (isDev) {
+        console.log('[AuthProvider] Token found and stored in sessionStorage');
+      }
       setAuthToken(tokenFromUrl);
+    } else {
+      if (isDev) {
+        console.log('[AuthProvider] No token found in URL or sessionStorage');
+      }
     }
   }, []);
 

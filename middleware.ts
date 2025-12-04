@@ -10,11 +10,32 @@ export function middleware(request: NextRequest) {
   // Check if Authorization header is present (from Android WebView)
   const authHeader = request.headers.get('authorization');
   
+  // Development logging
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[Middleware] Request URL:', request.url);
+    console.log('[Middleware] Authorization header received:', authHeader ? '✅ Present' : '❌ Not present');
+    if (authHeader) {
+      // Mask token for security (show first 10 chars only)
+      const maskedToken = authHeader.length > 20 
+        ? `${authHeader.substring(0, 20)}...` 
+        : authHeader;
+      console.log('[Middleware] Authorization header value:', maskedToken);
+    }
+  }
+  
   if (authHeader) {
     // Extract token (handle both "Bearer token" and plain token)
     const token = authHeader.startsWith('Bearer ') 
       ? authHeader.substring(7) 
       : authHeader;
+    
+    // Development logging
+    if (process.env.NODE_ENV !== 'production') {
+      const maskedToken = token.length > 20 
+        ? `${token.substring(0, 20)}...` 
+        : token;
+      console.log('[Middleware] Token extracted and stored in cookie:', maskedToken);
+    }
     
     // Set token in httpOnly cookie for security
     // This cookie will be available for all subsequent requests
