@@ -34,32 +34,73 @@ export default function DepositForm({
   // Get fee configuration from context (fetched once at app level)
   const { fees: feesConfig } = useFeesContext();
   
-  // Get auth token from context (optional, untuk display/logging saja)
-  const { token: authTokenFromContext } = useAuth();
+  // Get auth token from context - ini adalah sumber utama token
+  // Token sudah dibaca dari response header saat initial load oleh AuthContext
+  const { token: authTokenFromContext, isLoading: isLoadingAuth } = useAuth();
   
   // Logging for debugging
   const shouldLog = process.env.NEXT_PUBLIC_ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
   
-  // Helper function to get token directly from cookie or API
-  // Token sudah tersedia sejak pertama kali web di-load (disimpan oleh middleware)
-  // Kita hanya perlu membaca dari cookie yang sudah ada
+  // Helper function to get token from multiple sources
+  // SOLUSI UTAMA: Token dari URL query parameter (Android bisa pass via URL)
   const getAuthToken = async (): Promise<string | null> => {
     if (typeof window === 'undefined') return null;
     
-    // Priority 1: Read from non-httpOnly cookie (token sudah di-set oleh middleware saat load)
-    // Cookie ini sudah tersedia sejak pertama kali web di-load oleh aplikasi Android
+    // PRIORITY 1: Read from URL query parameter (SOLUSI UTAMA)
+    // Format: ?authToken="ENC Key=..." atau ?token="ENC Key=..."
+    // Middleware akan redirect dengan format ini saat menerima Authorization header
+    const urlParams = new URLSearchParams(window.location.search);
+    let tokenFromUrl = urlParams.get('authToken') || urlParams.get('token') || urlParams.get('auth_token');
+    
+    if (tokenFromUrl) {
+      // Decode URL encoding jika ada
+      try {
+        tokenFromUrl = decodeURIComponent(tokenFromUrl);
+      } catch {
+        // Jika decode gagal, gunakan as-is
+      }
+      
+      // Remove quotes jika ada (format: "ENC Key=...")
+      // Token bisa datang dengan quotes atau tanpa quotes
+      let cleanToken = tokenFromUrl;
+      if (cleanToken.startsWith('"') && cleanToken.endsWith('"')) {
+        cleanToken = cleanToken.slice(1, -1); // Remove first and last character (quotes)
+      }
+      
+      if (cleanToken) {
+        if (shouldLog) {
+          const maskedToken = cleanToken.length > 20 
+            ? `${cleanToken.substring(0, 20)}...` 
+            : cleanToken;
+          console.log('[DepositForm] ✅ Token dari URL query parameter (PRIORITY 1):', maskedToken);
+        }
+        return cleanToken;
+      }
+    }
+    
+    // PRIORITY 2: Use token from AuthContext (sudah dibaca dari response header saat initial load)
+    // Ini adalah fallback jika token tidak ada di URL
+    if (authTokenFromContext) {
+      if (shouldLog) {
+        const maskedToken = authTokenFromContext.length > 20 
+          ? `${authTokenFromContext.substring(0, 20)}...` 
+          : authTokenFromContext;
+        console.log('[DepositForm] ✅ Token dari AuthContext (response header):', maskedToken);
+      }
+      return authTokenFromContext;
+    }
+    
+    // PRIORITY 4: Read from non-httpOnly cookie (if available)
     const cookies = document.cookie.split('; ');
     const cookieToken = cookies
       .find(row => row.trim().startsWith('auth_token_client='))
       ?.split('=')[1];
     
     if (cookieToken) {
-      // Decode jika ada encoding (URI component atau lainnya)
       let decodedToken = cookieToken;
       try {
         decodedToken = decodeURIComponent(cookieToken);
       } catch {
-        // Jika bukan URI encoded, gunakan as-is
         decodedToken = cookieToken;
       }
       
@@ -67,21 +108,16 @@ export default function DepositForm({
         const maskedToken = decodedToken.length > 20 
           ? `${decodedToken.substring(0, 20)}...` 
           : decodedToken;
-        console.log('[DepositForm] ✅ Token dari cookie (sudah tersedia sejak load):', maskedToken);
+        console.log('[DepositForm] ✅ Token dari cookie:', maskedToken);
       }
       return decodedToken;
     }
     
-    if (shouldLog) {
-      console.log('[DepositForm] ⚠️ Token tidak ditemukan di cookie, mencoba fetch dari API...');
-      console.log('[DepositForm] Semua cookies:', cookies);
-    }
-    
-    // Priority 2: Fetch from API endpoint (reads from httpOnly cookie - fallback)
+    // PRIORITY 5: Fetch from API endpoint (reads from httpOnly cookie - fallback)
     try {
       const response = await fetch('/api/auth/get-token', {
         method: 'GET',
-        credentials: 'include', // CRITICAL: Include cookies in request
+        credentials: 'include',
       });
       
       if (response.ok) {
@@ -91,7 +127,7 @@ export default function DepositForm({
             const maskedToken = data.token.length > 20 
               ? `${data.token.substring(0, 20)}...` 
               : data.token;
-            console.log('[DepositForm] ✅ Token dari API endpoint (httpOnly cookie):', maskedToken);
+            console.log('[DepositForm] ✅ Token dari API endpoint:', maskedToken);
           }
           return data.token;
         }
@@ -102,19 +138,20 @@ export default function DepositForm({
       }
     }
     
-    // Priority 3: Use token from context (if available - fallback)
+    // PRIORITY 6: Use token from context (if available - fallback)
     if (authTokenFromContext) {
       if (shouldLog) {
         const maskedToken = authTokenFromContext.length > 20 
           ? `${authTokenFromContext.substring(0, 20)}...` 
           : authTokenFromContext;
-        console.log('[DepositForm] ✅ Token dari context (fallback):', maskedToken);
+        console.log('[DepositForm] ✅ Token dari context:', maskedToken);
       }
       return authTokenFromContext;
     }
     
     if (shouldLog) {
       console.log('[DepositForm] ❌ Token tidak ditemukan dari semua sumber');
+      console.log('[DepositForm] Semua cookies:', cookies);
     }
     
     return null;

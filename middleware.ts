@@ -44,6 +44,42 @@ export function middleware(request: NextRequest) {
     }
   }
   
+  // SOLUSI: Jika ada Authorization header dan belum ada token di query parameter, redirect dengan query parameter
+  // Ini memastikan token langsung tersedia di URL sebagai query parameter
+  if (authHeader && !request.nextUrl.pathname.startsWith('/api/')) {
+    const currentUrl = request.nextUrl.clone();
+    const hasTokenParam = currentUrl.searchParams.has('token') || 
+                          currentUrl.searchParams.has('auth_token') || 
+                          currentUrl.searchParams.has('authToken');
+    
+    // Jika belum ada token di query parameter, redirect dengan query parameter
+    if (!hasTokenParam) {
+      // Format token dengan quotes: "ENC Key=..."
+      // Sesuai format yang diinginkan: ?authToken="ENC Key=..."
+      const tokenWithQuotes = `"${authHeader}"`;
+      // URL encode untuk safety
+      const encodedToken = encodeURIComponent(tokenWithQuotes);
+      
+      // Tambahkan token ke query parameter dengan format: authToken="ENC Key=..."
+      currentUrl.searchParams.set('authToken', encodedToken);
+      
+      if (shouldLog) {
+        const maskedHeader = authHeader.length > 20 
+          ? `${authHeader.substring(0, 20)}...` 
+          : authHeader;
+        console.log('[Middleware] 🔄 Redirecting to URL with token query parameter:', {
+          from: request.url,
+          to: currentUrl.toString(),
+          tokenPreview: maskedHeader,
+          format: 'authToken="ENC Key=..."',
+        });
+      }
+      
+      // Redirect ke URL yang sama dengan query parameter token
+      return NextResponse.redirect(currentUrl);
+    }
+  }
+  
   // Create response
   const response = NextResponse.next();
   
@@ -57,23 +93,31 @@ export function middleware(request: NextRequest) {
       console.log('[Middleware] Storing Authorization header in cookie (as-is):', maskedHeader);
     }
     
-    // Set Authorization header AS-IS in httpOnly cookie (for server-side fallback)
+    // Cookie settings yang optimal untuk Android WebView:
+    // - httpOnly: true untuk keamanan (server-side only)
+    // - secure: true untuk HTTPS (WAJIB di production, WebView support)
+    // - sameSite: 'lax' (lebih kompatibel dengan WebView daripada 'strict')
+    // - path: '/' untuk semua routes
+    // - maxAge: 24 jam untuk session persistence
+    
+    // HttpOnly cookie untuk server-side access (lebih secure)
     response.cookies.set('auth_token', authHeader, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24, // 24 hours
-      path: '/',
+      httpOnly: true,        // ✅ Server-side only (secure)
+      secure: process.env.NODE_ENV === 'production', // ✅ HTTPS only in production (WebView requires this)
+      sameSite: 'lax',       // ✅ Lax lebih kompatibel dengan WebView (strict bisa bermasalah)
+      maxAge: 60 * 60 * 24,  // ✅ 24 hours
+      path: '/',             // ✅ Root path (semua routes bisa akses)
     });
     
-    // CRITICAL: Also set non-httpOnly cookie for client-side JavaScript access
-    // This allows client-side to read cookie directly if httpOnly cookie doesn't work
+    // Non-httpOnly cookie untuk client-side JavaScript access
+    // IMPORTANT: Cookie ini diperlukan karena httpOnly tidak bisa dibaca JavaScript
+    // WebView CookieManager akan menyimpan kedua cookie ini
     response.cookies.set('auth_token_client', authHeader, {
-      httpOnly: false, // Allow client-side JavaScript to read
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24, // 24 hours
-      path: '/',
+      httpOnly: false,       // ✅ Allow client-side JavaScript to read
+      secure: process.env.NODE_ENV === 'production', // ✅ HTTPS only in production
+      sameSite: 'lax',       // ✅ Lax untuk WebView compatibility
+      maxAge: 60 * 60 * 24,  // ✅ 24 hours
+      path: '/',             // ✅ Root path
     });
     
     // CRITICAL: Expose token in response header for client-side to read
