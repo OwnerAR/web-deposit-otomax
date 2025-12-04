@@ -30,7 +30,6 @@ function DepositFormContent({
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const [calculatedAmount, setCalculatedAmount] = useState<number | null>(null);
-  const [authToken, setAuthToken] = useState<string | null>(null); // Store token in state
   
   // Get fee configuration from context (fetched once at app level)
   const { fees: feesConfig } = useFeesContext();
@@ -38,184 +37,56 @@ function DepositFormContent({
   // Logging for debugging
   const shouldLog = process.env.NEXT_PUBLIC_ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
   
-  // Extract and store token from URL query parameter on mount
-  // Token akan dipertahankan di state sampai submit - ini memastikan token tetap tersedia
+  // Check token on mount - redirect to 404 if not present
   useEffect(() => {
-    const extractAndStoreToken = () => {
-      if (typeof window === 'undefined') return;
-      
-      // ALWAYS log for debugging
-      console.log('[DepositForm] ===== EXTRACTING TOKEN ON MOUNT =====');
-      console.log('[DepositForm] Current URL:', window.location.href);
-      console.log('[DepositForm] Search:', window.location.search);
-      
-      // Try to get from URL query parameter
-      const urlParams = new URLSearchParams(window.location.search);
-      let tokenFromUrl = urlParams.get('authToken') || urlParams.get('token') || urlParams.get('auth_token');
-      
-      // Also try from Next.js searchParams (as fallback)
-      if (!tokenFromUrl) {
-        tokenFromUrl = searchParams.get('authToken') || searchParams.get('token') || searchParams.get('auth_token');
-      }
-      
-      if (!tokenFromUrl) {
-        console.log('[DepositForm] ❌ No token found in URL query parameters on mount');
-        console.log('[DepositForm] All URL params:', Array.from(urlParams.keys()));
-        console.log('[DepositForm] All searchParams:', Array.from(searchParams.keys()));
-        return;
-      }
-      
-      console.log('[DepositForm] ✅ Token found in URL on mount, extracting...');
-      console.log('[DepositForm] Raw token (first 50 chars):', tokenFromUrl.substring(0, 50) + '...');
-      console.log('[DepositForm] Raw token length:', tokenFromUrl.length);
-      
-      // Decode URL encoding (handle multiple encodings)
-      let decodedToken = tokenFromUrl;
-      try {
-        let previousDecode = decodedToken;
-        for (let i = 0; i < 3; i++) {
-          const newDecode = decodeURIComponent(decodedToken);
-          if (newDecode === previousDecode) {
-            console.log(`[DepositForm] Decode iteration ${i}: No change, stopping`);
-            break;
-          }
-          decodedToken = newDecode;
-          previousDecode = decodedToken;
-        }
-        console.log('[DepositForm] After decode (first 50 chars):', decodedToken.substring(0, 50) + '...');
-      } catch (error) {
-        console.log('[DepositForm] ⚠️ Decode failed, using as-is:', error);
-        decodedToken = tokenFromUrl;
-      }
-      
-      // Remove quotes jika ada (format: "ENC Key=...")
-      let cleanToken = decodedToken.trim();
-      if (cleanToken.startsWith('"') && cleanToken.endsWith('"')) {
-        cleanToken = cleanToken.slice(1, -1).trim();
-        console.log('[DepositForm] Removed quotes');
-      }
-      
-      if (cleanToken) {
-        setAuthToken(cleanToken); // Store token in state - akan dipertahankan sampai submit
-        const maskedToken = cleanToken.length > 20 
-          ? `${cleanToken.substring(0, 20)}...` 
-          : cleanToken;
-        console.log('[DepositForm] ✅✅✅ Token stored in state (will persist until submit):', maskedToken);
-        console.log('[DepositForm] Token length:', cleanToken.length);
-      } else {
-        console.error('[DepositForm] ❌ Token is empty after cleaning');
-      }
-    };
-    
-    extractAndStoreToken();
-  }, [searchParams]); // Only depend on searchParams, not shouldLog
-  
-  // Helper function to get token (from state - token sudah dipertahankan sampai submit)
-  // Format: ?authToken="ENC Key=..." 
-  // Middleware akan redirect dengan format ini saat menerima Authorization header
-  // Token sudah disimpan di state saat component mount, sehingga tetap tersedia sampai submit
-  const getAuthToken = (): string | null => {
-    // Use token from state (stored on mount, persists until submit)
-    if (authToken) {
-      if (shouldLog) {
-        const maskedToken = authToken.length > 20 
-          ? `${authToken.substring(0, 20)}...` 
-          : authToken;
-        console.log('[DepositForm] ✅ Using token from state (persisted):', maskedToken);
-      }
-      return authToken;
-    }
-    
-    // Priority 2: Try to get from URL query parameter (fallback)
-    if (typeof window === 'undefined') return null;
-    
-    if (shouldLog) {
-      console.log('[DepositForm] Getting token from URL...');
-      console.log('[DepositForm] Current URL:', window.location.href);
-      console.log('[DepositForm] Search:', window.location.search);
-    }
+    if (typeof window === 'undefined') return;
     
     const urlParams = new URLSearchParams(window.location.search);
-    const allParams = Array.from(urlParams.entries());
+    const token = urlParams.get('authToken') || urlParams.get('token') || urlParams.get('auth_token');
     
-    if (shouldLog) {
-      console.log('[DepositForm] All query params:', allParams.map(([key]) => key));
+    if (!token) {
+      console.error('[DepositForm] ❌ No token found in URL query parameter - redirecting to 404');
+      router.replace('/not-found');
     }
+  }, [router]);
+  
+  // Helper function to extract and clean token from URL query parameter
+  const getTokenFromQuery = (): string | null => {
+    if (typeof window === 'undefined') return null;
     
+    const urlParams = new URLSearchParams(window.location.search);
     let tokenFromUrl = urlParams.get('authToken') || urlParams.get('token') || urlParams.get('auth_token');
     
+    // Also try from Next.js searchParams
     if (!tokenFromUrl) {
-      if (shouldLog) {
-        console.log('[DepositForm] ❌ No token found in URL query parameters');
-        console.log('[DepositForm] Checked params: authToken, token, auth_token');
-        console.log('[DepositForm] All params:', allParams);
-      }
-      return null;
+      tokenFromUrl = searchParams.get('authToken') || searchParams.get('token') || searchParams.get('auth_token');
     }
     
-    if (shouldLog) {
-      console.log('[DepositForm] ✅ Token found in URL');
-      console.log('[DepositForm] Raw token (first 100 chars):', tokenFromUrl.substring(0, 100) + '...');
-      console.log('[DepositForm] Raw token length:', tokenFromUrl.length);
+    if (!tokenFromUrl) {
+      return null;
     }
     
     // Decode URL encoding (handle multiple encodings)
     let decodedToken = tokenFromUrl;
     try {
-      // Try decode multiple times (handle double encoding)
       let previousDecode = decodedToken;
       for (let i = 0; i < 3; i++) {
         const newDecode = decodeURIComponent(decodedToken);
-        if (newDecode === previousDecode) {
-          if (shouldLog && i > 0) {
-            console.log(`[DepositForm] Decode iteration ${i}: No change, stopping`);
-          }
-          break; // Stop if no change
-        }
+        if (newDecode === previousDecode) break;
         decodedToken = newDecode;
         previousDecode = decodedToken;
       }
-      
-      if (shouldLog) {
-        console.log('[DepositForm] After decode (first 100 chars):', decodedToken.substring(0, 100) + '...');
-        console.log('[DepositForm] After decode length:', decodedToken.length);
-      }
-    } catch (error) {
-      if (shouldLog) {
-        console.log('[DepositForm] ⚠️ Decode failed, using as-is:', error);
-      }
+    } catch {
       decodedToken = tokenFromUrl;
     }
     
     // Remove quotes jika ada (format: "ENC Key=...")
     let cleanToken = decodedToken.trim();
     if (cleanToken.startsWith('"') && cleanToken.endsWith('"')) {
-      cleanToken = cleanToken.slice(1, -1).trim(); // Remove first and last character (quotes)
-      
-      if (shouldLog) {
-        console.log('[DepositForm] Removed quotes');
-        console.log('[DepositForm] After removing quotes (first 100 chars):', cleanToken.substring(0, 100) + '...');
-        console.log('[DepositForm] After removing quotes length:', cleanToken.length);
-      }
+      cleanToken = cleanToken.slice(1, -1).trim();
     }
     
-    if (cleanToken) {
-      if (shouldLog) {
-        const maskedToken = cleanToken.length > 20 
-          ? `${cleanToken.substring(0, 20)}...` 
-          : cleanToken;
-        console.log('[DepositForm] ✅ Token final (cleaned):', maskedToken);
-        console.log('[DepositForm] Token length:', cleanToken.length);
-      }
-      return cleanToken;
-    }
-    
-    if (shouldLog) {
-      console.log('[DepositForm] ❌ Token is empty after cleaning');
-      console.log('[DepositForm] Decoded token was:', decodedToken);
-    }
-    
-    return null;
+    return cleanToken || null;
   };
 
   const {
@@ -255,39 +126,36 @@ function DepositFormContent({
     }
     
     try {
-      // Get token from URL query parameter (ONLY SOURCE)
-      const authToken = getAuthToken();
+      // Get token langsung dari URL query parameter (token dipertahankan di URL sampai submit)
+      const token = getTokenFromQuery();
       
-      // ALWAYS log token retrieval (critical for debugging)
-      console.log('[DepositForm] ===== TOKEN RETRIEVAL =====');
-      console.log('[DepositForm] Token retrieved:', authToken ? '✅ Yes' : '❌ No');
+      // ALWAYS log untuk debugging (critical)
+      console.log('[DepositForm] ===== TOKEN RETRIEVAL (ON SUBMIT) =====');
       console.log('[DepositForm] Current URL:', typeof window !== 'undefined' ? window.location.href : 'N/A');
-      console.log('[DepositForm] Query params:', typeof window !== 'undefined' ? window.location.search : 'N/A');
+      console.log('[DepositForm] Token from query parameter:', token ? '✅ Yes' : '❌ No');
       
-      if (authToken) {
-        const maskedToken = authToken.length > 20 
-          ? `${authToken.substring(0, 20)}...` 
-          : authToken;
-        console.log('[DepositForm] Token value (masked):', maskedToken);
-        console.log('[DepositForm] Token length:', authToken.length);
-      } else {
-        console.error('[DepositForm] ❌❌❌ TOKEN IS NULL - CHECK URL QUERY PARAMETER ❌❌❌');
-        if (typeof window !== 'undefined') {
-          const urlParams = new URLSearchParams(window.location.search);
-          console.error('[DepositForm] Available query params:', Array.from(urlParams.keys()));
-          console.error('[DepositForm] authToken param:', urlParams.get('authToken'));
-          console.error('[DepositForm] token param:', urlParams.get('token'));
-          console.error('[DepositForm] auth_token param:', urlParams.get('auth_token'));
-        }
+      // Jika tidak ada token, redirect ke 404
+      if (!token) {
+        console.error('[DepositForm] ❌❌❌ TOKEN IS NULL - Redirecting to 404 ❌❌❌');
+        router.replace('/not-found');
+        return;
       }
       
-      // Prepare request data with token injected in body (not shown in UI)
+      if (token) {
+        const maskedToken = token.length > 20 
+          ? `${token.substring(0, 20)}...` 
+          : token;
+        console.log('[DepositForm] Token value (masked):', maskedToken);
+        console.log('[DepositForm] Token length:', token.length);
+      }
+      
+      // Prepare request data with token injected in body (token dari URL query parameter)
       const requestData: CreateDepositRequest = {
         amount: data.amount,
         phone_number: data.phone_number || undefined,
         payment_method: data.payment_method,
-        // Inject token into body if available (automatically, not shown in form)
-        ...(authToken && { auth_token: authToken }),
+        // Inject token ke body dari query parameter
+        auth_token: token,
       };
 
       // ALWAYS log request data (critical for debugging)
@@ -295,11 +163,7 @@ function DepositFormContent({
       console.log('[DepositForm] Amount:', requestData.amount);
       console.log('[DepositForm] Payment method:', requestData.payment_method);
       console.log('[DepositForm] Phone number:', requestData.phone_number ? '***' : undefined);
-      console.log('[DepositForm] Auth token in body:', requestData.auth_token ? '✅ INJECTED' : '❌ NOT INJECTED');
-      
-      if (!requestData.auth_token) {
-        console.error('[DepositForm] ❌❌❌ WARNING: Token will NOT be sent to backend! ❌❌❌');
-      }
+      console.log('[DepositForm] Auth token in body:', requestData.auth_token ? '✅✅✅ INJECTED' : '❌❌❌ NOT INJECTED');
 
       const response = await apiClient.createDeposit(requestData);
 
