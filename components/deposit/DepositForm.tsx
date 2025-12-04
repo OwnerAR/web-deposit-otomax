@@ -34,40 +34,72 @@ export default function DepositForm({
   // Get fee configuration from context (fetched once at app level)
   const { fees: feesConfig } = useFeesContext();
   
-  // Get auth token from context (stored automatically, not shown in UI)
-  const { token: authTokenFromContext, isLoading: isLoadingAuth } = useAuth();
-  
-  // Fallback: Also check sessionStorage directly (in case context hasn't loaded yet)
-  const [authTokenFromStorage, setAuthTokenFromStorage] = useState<string | null>(null);
-  
-  useEffect(() => {
-    // Check sessionStorage as fallback
-    if (typeof window !== 'undefined') {
-      const token = sessionStorage.getItem('auth_token');
-      setAuthTokenFromStorage(token);
-    }
-  }, []);
-  
-  // Use token from context first, fallback to sessionStorage
-  const authToken = authTokenFromContext || authTokenFromStorage;
+  // Get auth token from context (optional, untuk display/logging saja)
+  const { token: authTokenFromContext } = useAuth();
   
   // Logging for debugging
   const shouldLog = process.env.NEXT_PUBLIC_ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
   
-  useEffect(() => {
-    if (shouldLog) {
-      console.log('[DepositForm] Auth token from context:', authTokenFromContext ? '✅ Present' : '❌ Not present');
-      console.log('[DepositForm] Auth token from sessionStorage:', authTokenFromStorage ? '✅ Present' : '❌ Not present');
-      console.log('[DepositForm] Final auth token:', authToken ? '✅ Present' : '❌ Not present');
-      if (authToken) {
-        const maskedToken = authToken.length > 20 
-          ? `${authToken.substring(0, 20)}...` 
-          : authToken;
-        console.log('[DepositForm] Auth token value:', maskedToken);
+  // Helper function to get token directly from cookie or API
+  // This is called on-demand during form submit (not stored in state)
+  const getAuthToken = async (): Promise<string | null> => {
+    if (typeof window === 'undefined') return null;
+    
+    // Priority 1: Read from non-httpOnly cookie (fastest, client-side accessible)
+    const cookies = document.cookie.split('; ');
+    const cookieToken = cookies
+      .find(row => row.startsWith('auth_token_client='))
+      ?.split('=')[1];
+    
+    if (cookieToken) {
+      const decodedToken = decodeURIComponent(cookieToken);
+      if (shouldLog) {
+        const maskedToken = decodedToken.length > 20 
+          ? `${decodedToken.substring(0, 20)}...` 
+          : decodedToken;
+        console.log('[DepositForm] Token from cookie:', maskedToken);
       }
-      console.log('[DepositForm] Auth loading:', isLoadingAuth);
+      return decodedToken;
     }
-  }, [authToken, authTokenFromContext, authTokenFromStorage, isLoadingAuth, shouldLog]);
+    
+    // Priority 2: Fetch from API endpoint (reads from httpOnly cookie)
+    try {
+      const response = await fetch('/api/auth/get-token', {
+        method: 'GET',
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.token) {
+          if (shouldLog) {
+            const maskedToken = data.token.length > 20 
+              ? `${data.token.substring(0, 20)}...` 
+              : data.token;
+            console.log('[DepositForm] Token from API endpoint:', maskedToken);
+          }
+          return data.token;
+        }
+      }
+    } catch (error) {
+      if (shouldLog) {
+        console.log('[DepositForm] Failed to fetch token from API:', error);
+      }
+    }
+    
+    // Priority 3: Use token from context (if available)
+    if (authTokenFromContext) {
+      if (shouldLog) {
+        const maskedToken = authTokenFromContext.length > 20 
+          ? `${authTokenFromContext.substring(0, 20)}...` 
+          : authTokenFromContext;
+        console.log('[DepositForm] Token from context:', maskedToken);
+      }
+      return authTokenFromContext;
+    }
+    
+    return null;
+  };
 
   const {
     register,
@@ -101,19 +133,24 @@ export default function DepositForm({
   const onSubmit = async (data: DepositFormData) => {
     setIsLoading(true);
     
-    // Logging before submit
     if (shouldLog) {
       console.log('[DepositForm] Submitting form...');
-      console.log('[DepositForm] Auth token available:', authToken ? '✅ Yes' : '❌ No');
-      if (authToken) {
-        const maskedToken = authToken.length > 20 
-          ? `${authToken.substring(0, 20)}...` 
-          : authToken;
-        console.log('[DepositForm] Auth token value:', maskedToken);
-      }
     }
     
     try {
+      // Get token directly from cookie/API (not from state/sessionStorage)
+      const authToken = await getAuthToken();
+      
+      if (shouldLog) {
+        console.log('[DepositForm] Token retrieved:', authToken ? '✅ Yes' : '❌ No');
+        if (authToken) {
+          const maskedToken = authToken.length > 20 
+            ? `${authToken.substring(0, 20)}...` 
+            : authToken;
+          console.log('[DepositForm] Token value:', maskedToken);
+        }
+      }
+      
       // Prepare request data with token injected in body (not shown in UI)
       const requestData: CreateDepositRequest = {
         amount: data.amount,
