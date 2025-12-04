@@ -1,0 +1,616 @@
+# Web Deposit Form - Next.js Frontend
+
+## Project Overview
+Frontend web application untuk melakukan deposit dengan berbagai metode pembayaran melalui Xendit API. Dibangun menggunakan Next.js dengan TypeScript dan best practices modern web development.
+
+## Tech Stack
+- **Framework**: Next.js 14+ (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **Form Handling**: React Hook Form + Zod (validation)
+- **HTTP Client**: Fetch API
+- **State Management**: React Context API (FeesContext, AuthProvider)
+- **UI Components**: Custom components dengan Tailwind CSS
+- **Icons**: Lucide React
+- **Toast Notifications**: react-hot-toast
+- **Number Formatting**: Intl.NumberFormat
+
+## Project Structure
+```
+web-deposit/
+├── app/                          # Next.js App Router
+│   ├── layout.tsx               # Root layout dengan AuthProvider & FeesProvider
+│   ├── page.tsx                 # Home/Deposit page (ALL payment methods)
+│   ├── [paymentMethod]/         # Dynamic routes untuk payment methods
+│   │   ├── ewallet/page.tsx
+│   │   ├── vabank/page.tsx
+│   │   ├── qris/page.tsx
+│   │   └── retail/page.tsx
+│   ├── success/                 # Success page after payment
+│   │   └── page.tsx
+│   ├── api/                     # Next.js API routes (proxy)
+│   │   ├── deposit/
+│   │   │   ├── create/route.ts  # Proxy untuk create deposit
+│   │   │   └── fees/route.ts    # Proxy untuk get fees
+│   │   └── auth/
+│   │       └── set-token/route.ts
+│   └── globals.css              # Global styles
+├── components/
+│   ├── ui/                      # Reusable UI components
+│   │   ├── button.tsx
+│   │   ├── input.tsx
+│   │   ├── select.tsx
+│   │   ├── card.tsx
+│   │   └── label.tsx
+│   ├── deposit/
+│   │   ├── DepositForm.tsx      # Main deposit form
+│   │   ├── AmountInput.tsx      # Amount input dengan formatting
+│   │   ├── PhoneInput.tsx       # Phone number input
+│   │   ├── PaymentMethodSelect.tsx  # Payment method selection
+│   │   └── PaymentSummary.tsx   # Payment summary card
+│   ├── layout/
+│   │   ├── Header.tsx
+│   │   └── Footer.tsx
+│   └── auth/
+│       └── AuthProvider.tsx     # Auth context untuk Android WebView
+├── contexts/
+│   └── FeesContext.tsx          # Context untuk fee configuration
+├── hooks/
+│   ├── useFees.ts               # Hook untuk fetch fees dengan caching
+│   ├── useDeposit.ts            # Custom hook for deposit
+│   └── usePaymentMethods.ts     # Custom hook for payment methods
+├── lib/
+│   ├── api.ts                   # API client configuration
+│   ├── auth.ts                  # Auth utilities (token management)
+│   ├── utils.ts                 # Utility functions
+│   ├── validation.ts            # Zod schemas
+│   ├── constants.ts             # Constants (payment methods, min/max amounts)
+│   └── payment-routes.ts         # Payment route utilities
+├── types/
+│   ├── deposit.ts               # TypeScript types untuk deposit
+│   ├── api.ts                   # API response types
+│   └── fees.ts                  # Fee configuration types
+├── middleware.ts                # Next.js middleware untuk auth header
+├── tailwind.config.ts
+├── tsconfig.json
+├── next.config.js
+└── package.json
+```
+
+## API Integration
+
+### API Client Setup
+```typescript
+// lib/api.ts
+const API_ROUTE = '/api/deposit/create';
+const FEES_ROUTE = '/api/deposit/fees';
+
+export const apiClient = {
+  async createDeposit(data: CreateDepositRequest): Promise<CreateDepositResponse> {
+    const authToken = getAuthToken();
+    
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+    };
+
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    }
+
+    const response = await fetch(API_ROUTE, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error: ApiError = await response.json().catch(() => ({
+        error: 'Failed to create deposit',
+      }));
+      throw new Error(error.error || 'Failed to create deposit');
+    }
+
+    return response.json();
+  },
+
+  async getFees(): Promise<FeesResponse> {
+    const response = await fetch(FEES_ROUTE, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const error: ApiError = await response.json().catch(() => ({
+        error: 'Failed to get fee configuration',
+      }));
+      throw new Error(error.error || 'Failed to get fee configuration');
+    }
+
+    return response.json();
+  },
+};
+```
+
+### Next.js API Routes (Proxy)
+```typescript
+// app/api/deposit/create/route.ts
+// Proxies request ke backend dengan Authorization header
+// Mendapatkan token dari cookie (set oleh middleware) atau request header
+
+// app/api/deposit/fees/route.ts
+// Mengambil fee configuration dari environment variables
+// Mengembalikan structured JSON dengan type (static/percentage) dan formatted value
+```
+
+### TypeScript Types
+```typescript
+// types/deposit.ts
+export type PaymentMethod = 'VA_BANK' | 'RETAIL' | 'QRIS' | 'EWALLET' | 'ALL';
+
+export interface CreateDepositRequest {
+  amount: number;
+  phone_number?: string;
+  payment_method: PaymentMethod;
+}
+
+export interface CreateDepositResponse {
+  ticket_id: number;
+  invoice_url: string;
+  payment_method: PaymentMethod;
+  amount: number;
+  payment_methods?: Record<string, PaymentMethodInfo>;
+}
+
+// types/fees.ts
+export type FeeType = 'static' | 'percentage';
+
+export interface FeeConfig {
+  type: FeeType;
+  value: number;
+  formatted: string;
+}
+
+export interface FeesResponse {
+  va_bank: FeeConfig;
+  retail: FeeConfig;
+  qris: FeeConfig;
+  ewallet: FeeConfig;
+}
+```
+
+## Authentication Flow (Android WebView)
+
+### Strategy
+1. **Initial Request**: Android WebView mengirim `Authorization` header pada initial request
+2. **Middleware**: Next.js middleware menangkap header dan menyimpan di httpOnly cookie
+3. **API Routes**: Next.js API routes membaca token dari cookie atau request header
+4. **PostMessage**: Alternatif, Android bisa mengirim token via `postMessage`
+
+### Implementation
+```typescript
+// middleware.ts
+// Menangkap Authorization header dari initial request
+// Menyimpan token di httpOnly cookie untuk security
+
+// lib/auth.ts
+// Utility functions untuk manage auth token:
+// - getAuthToken(): Get token dari URL param, sessionStorage, atau postMessage
+// - setAuthToken(): Set token ke sessionStorage
+// - clearAuthToken(): Clear token
+// - setupPostMessageListener(): Listen untuk postMessage dari Android
+
+// components/auth/AuthProvider.tsx
+// Client component yang setup postMessage listener
+// Wrapped di root layout
+```
+
+## Dynamic Routing for Payment Methods
+
+### Routes
+- `/` - Default page (ALL payment methods, selector visible)
+- `/ewallet` - E-Wallet deposit (pre-selected, selector hidden)
+- `/vabank` - Virtual Account deposit (pre-selected, selector hidden)
+- `/qris` - QRIS deposit (pre-selected, selector hidden)
+- `/retail` - Retail Outlet deposit (pre-selected, selector hidden)
+
+### Implementation
+```typescript
+// lib/payment-routes.ts
+// Utilities untuk mapping path ke payment method
+// getPaymentMethodFromPath(pathname): PaymentMethod
+// getPathFromPaymentMethod(method): string
+// getPageTitle(method): string
+// getPageDescription(method): string
+
+// app/[paymentMethod]/page.tsx
+// Dynamic route dengan:
+// - defaultPaymentMethod prop ke DepositForm
+// - hidePaymentMethodSelect={true}
+// - Custom page title dan description
+```
+
+## Form Validation
+
+### Zod Schema
+```typescript
+// lib/validation.ts
+import { z } from 'zod';
+import { MIN_AMOUNT, MAX_AMOUNT } from './constants';
+import { formatCurrency } from './utils';
+
+export const depositFormSchema = z.object({
+  amount: z
+    .preprocess(
+      (val) => {
+        if (val === '' || val === null || val === undefined) return undefined;
+        const num = typeof val === 'string' ? parseFloat(val) : val;
+        return isNaN(num) ? undefined : num;
+      },
+      z
+        .number({
+          required_error: 'Nominal deposit harus diisi',
+          invalid_type_error: 'Nominal deposit harus berupa angka',
+        })
+        .min(MIN_AMOUNT, `Minimum deposit adalah ${formatCurrency(MIN_AMOUNT)}`)
+        .max(MAX_AMOUNT, `Maximum deposit adalah ${formatCurrency(MAX_AMOUNT)}`)
+        .refine((val) => val > 0, 'Amount harus lebih dari 0')
+    ),
+  phone_number: z
+    .string()
+    .optional()
+    .refine(
+      (val) => !val || /^08\d{9,11}$/.test(val),
+      'Format nomor telepon tidak valid (contoh: 081234567890)'
+    ),
+  payment_method: z.enum(['VA_BANK', 'RETAIL', 'QRIS', 'EWALLET', 'ALL'], {
+    required_error: 'Pilih metode pembayaran',
+  }),
+});
+
+export type DepositFormData = z.infer<typeof depositFormSchema>;
+```
+
+## Fee Configuration
+
+### Dynamic Fee Fetching
+Fees diambil dari backend API endpoint (`GET /api/deposit/fees`) untuk memastikan sync antara frontend dan backend.
+
+### Implementation
+```typescript
+// hooks/useFees.ts
+// Custom hook dengan caching untuk fetch fees
+// Menggunakan global cache untuk avoid multiple API calls
+
+// contexts/FeesContext.tsx
+// Context provider untuk share fees ke seluruh app
+// Wrapped di root layout
+
+// lib/utils.ts
+export function calculateFee(
+  amount: number,
+  paymentMethod: PaymentMethod,
+  feesConfig?: FeesResponse | null
+): number {
+  // Use API fees if available, otherwise use fallback
+  if (feesConfig) {
+    const methodKeyMap: Record<PaymentMethod, keyof FeesResponse> = {
+      VA_BANK: 'va_bank',
+      RETAIL: 'retail',
+      QRIS: 'qris',
+      EWALLET: 'ewallet',
+      ALL: 'va_bank', // Default to va_bank for ALL
+    };
+
+    const methodKey = methodKeyMap[paymentMethod];
+    const feeConfig = feesConfig[methodKey];
+
+    if (feeConfig) {
+      if (feeConfig.type === 'static') {
+        return feeConfig.value;
+      } else if (feeConfig.type === 'percentage') {
+        return Math.round(amount * feeConfig.value);
+      }
+    }
+  }
+
+  // Fallback to hardcoded fees if API not available
+  // ...
+}
+```
+
+## Components Implementation
+
+### Main Deposit Form
+```typescript
+// components/deposit/DepositForm.tsx
+interface DepositFormProps {
+  defaultPaymentMethod?: PaymentMethod;
+  hidePaymentMethodSelect?: boolean;
+}
+
+// Features:
+// - Uses useFeesContext() untuk get fees
+// - Real-time fee calculation
+// - Loading state saat fetch fees
+// - Error handling untuk fees fetch
+```
+
+### Amount Input
+```typescript
+// components/deposit/AmountInput.tsx
+// Features:
+// - Large input (h-12 md:h-14)
+// - Font normal (not bold)
+// - No spinner/stepper buttons (hidden via CSS)
+// - Clear value on focus if 0
+// - Currency prefix (Rp)
+// - Min/max validation display
+```
+
+### Payment Summary
+```typescript
+// components/deposit/PaymentSummary.tsx
+// Features:
+// - Uses fees from context
+// - Real-time calculation
+// - Beautiful gradient background
+// - Clear breakdown (amount + fee = total)
+```
+
+## Utility Functions
+
+### Currency Formatting
+```typescript
+// lib/utils.ts
+export function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    minimumFractionDigits: 0,
+  }).format(amount);
+}
+
+export function calculateFee(
+  amount: number,
+  paymentMethod: PaymentMethod,
+  feesConfig?: FeesResponse | null
+): number {
+  // Uses API fees if available, fallback otherwise
+}
+
+export function formatPhoneNumber(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length >= 4) {
+    return `${digits.slice(0, 4)}-${digits.slice(4, 8)}-${digits.slice(8, 12)}`;
+  }
+  return digits;
+}
+
+export function cn(...inputs: ClassValue[]): string {
+  return twMerge(clsx(inputs));
+}
+```
+
+### Constants
+```typescript
+// lib/constants.ts
+export const PAYMENT_METHODS: Array<{
+  value: PaymentMethod;
+  label: string;
+  icon: LucideIcon; // Component reference, not JSX
+  description: string;
+}> = [
+  // ...
+];
+
+// Environment variables dengan fallback
+export const MIN_AMOUNT = parseInt(
+  process.env.NEXT_PUBLIC_MIN_DEPOSIT_AMOUNT || '10000',
+  10
+);
+
+export const MAX_AMOUNT = parseInt(
+  process.env.NEXT_PUBLIC_MAX_DEPOSIT_AMOUNT || '100000000',
+  10
+);
+```
+
+## Styling Guidelines
+
+### Tailwind CSS Configuration
+```typescript
+// tailwind.config.ts
+// Extended colors:
+// - primary (50-900 shades)
+// - gray (50-900 shades)
+// - success (50, 100, 500, 600)
+// - error (50, 100, 500, 600)
+// - fontFamily: Inter
+// - Custom spacing, borderRadius, boxShadow
+```
+
+### Global Styles
+```css
+/* app/globals.css */
+/* Hide number input spinner/stepper buttons */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+```
+
+### Design System
+- **Colors**: Primary blue (#3B82F6), Gray scale, Success green, Error red
+- **Typography**: Inter font family
+- **Spacing**: Consistent spacing scale
+- **Border Radius**: Rounded corners (lg, xl, 2xl)
+- **Shadows**: Subtle shadows for depth
+- **Responsive**: Mobile-first approach
+
+## Environment Variables
+
+```env
+# .env.local
+
+# API Configuration
+NEXT_PUBLIC_API_URL=http://localhost:8080
+NEXT_PUBLIC_APP_NAME=Xendit Deposit
+
+# Deposit Amount Limits
+NEXT_PUBLIC_MIN_DEPOSIT_AMOUNT=10000
+NEXT_PUBLIC_MAX_DEPOSIT_AMOUNT=100000000
+
+# Fee Configuration (used by /api/deposit/fees endpoint)
+FEE_VA_BANK=2500
+FEE_RETAIL=2500
+FEE_QRIS_PERCENTAGE=0.01
+FEE_EWALLET_PERCENTAGE=0.015
+```
+
+## Best Practices
+
+### 1. Form Handling
+- ✅ React Hook Form untuk performa dan UX yang lebih baik
+- ✅ Zod untuk validation schema (type-safe)
+- ✅ Real-time validation feedback
+- ✅ Loading states saat submit
+- ✅ Disable form saat loading untuk prevent double submission
+- ✅ Format input values (currency, phone number) untuk better UX
+
+### 2. Error Handling
+- ✅ Display validation errors di bawah setiap field
+- ✅ Show toast notifications untuk success/error
+- ✅ Handle API errors dengan user-friendly messages
+- ✅ Graceful fallback untuk fees jika API gagal
+- ✅ Log errors untuk debugging (console.error in development)
+
+### 3. User Experience
+- ✅ Show payment summary dengan breakdown (amount + fee)
+- ✅ Real-time calculation saat user input amount
+- ✅ Clear CTA buttons dengan loading states
+- ✅ Responsive design (mobile-first)
+- ✅ Accessible forms (proper labels, ARIA attributes)
+- ✅ Smooth transitions dan animations
+- ✅ Redirect ke Xendit checkout page setelah invoice dibuat
+
+### 4. State Management
+- ✅ React Hook Form untuk form state
+- ✅ React Context untuk global state (FeesContext, AuthProvider)
+- ✅ Caching untuk fees (avoid multiple API calls)
+- ✅ Minimize re-renders dengan proper memoization
+
+### 5. Performance
+- ✅ Code splitting dengan dynamic imports
+- ✅ Optimize images dengan Next.js Image component
+- ✅ Use React.memo untuk expensive components
+- ✅ Lazy load components yang tidak critical
+- ✅ Minimize bundle size
+- ✅ Cache fees globally untuk avoid redundant API calls
+
+### 6. Security
+- ✅ Validate all inputs di client dan server
+- ✅ Sanitize user inputs sebelum send ke API
+- ✅ Use environment variables untuk API URLs
+- ✅ httpOnly cookies untuk auth tokens
+- ✅ Never expose API keys di client-side code
+- ✅ Secure token handling untuk Android WebView
+
+### 7. Accessibility
+- ✅ Proper semantic HTML
+- ✅ ARIA labels untuk screen readers
+- ✅ Keyboard navigation support
+- ✅ Focus management
+- ✅ Color contrast compliance (WCAG AA)
+
+### 8. Responsive Design
+- ✅ Mobile-first approach
+- ✅ Breakpoints: sm (640px), md (768px), lg (1024px), xl (1280px)
+- ✅ Touch-friendly buttons (min 44x44px)
+- ✅ Readable font sizes (min 16px untuk mobile)
+- ✅ Proper spacing dan padding
+- ✅ Responsive typography (text-sm md:text-base)
+
+## Dependencies (package.json)
+
+```json
+{
+  "dependencies": {
+    "next": "^14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hook-form": "^7.48.0",
+    "@hookform/resolvers": "^3.3.0",
+    "zod": "^3.22.0",
+    "react-hot-toast": "^2.4.0",
+    "lucide-react": "^0.294.0",
+    "tailwindcss": "^3.3.0",
+    "clsx": "^2.0.0",
+    "tailwind-merge": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "typescript": "^5.2.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "eslint": "^8.50.0",
+    "eslint-config-next": "^14.0.0"
+  }
+}
+```
+
+## Page Structure
+
+### Home/Deposit Page (ALL methods)
+```typescript
+// app/page.tsx
+// Default route dengan:
+// - defaultPaymentMethod="ALL"
+// - hidePaymentMethodSelect={false}
+```
+
+### Dynamic Payment Method Pages
+```typescript
+// app/[paymentMethod]/page.tsx
+// Example: app/ewallet/page.tsx
+// - defaultPaymentMethod="EWALLET"
+// - hidePaymentMethodSelect={true}
+// - Custom page title dan description
+```
+
+### Success Page
+```typescript
+// app/success/page.tsx
+// Display success message dengan ticket_id
+// Button untuk kembali ke beranda
+```
+
+## Testing Considerations
+
+- Unit tests untuk utility functions
+- Integration tests untuk form submission
+- E2E tests untuk complete user flow
+- Test error handling dan edge cases
+- Test responsive design di berbagai devices
+- Test authentication flow dengan Android WebView
+- Test fee calculation dengan berbagai payment methods
+
+## Notes
+- Gunakan Server Components sebanyak mungkin untuk better performance
+- Use Client Components hanya untuk interactive elements
+- Implement proper error boundaries
+- Add analytics tracking (optional)
+- Implement SEO best practices
+- Consider adding dark mode support
+- Add loading skeletons untuk better perceived performance
+- Fees di-fetch sekali di app level (via FeesContext) untuk avoid redundant calls
+- Auth token handling support multiple methods: URL param, sessionStorage, postMessage, cookie

@@ -1,0 +1,705 @@
+---
+alwaysApply: true
+---
+
+
+# Web Deposit Form - Next.js Frontend
+
+## Project Overview
+Frontend web application untuk melakukan deposit dengan berbagai metode pembayaran melalui Xendit API. Dibangun menggunakan Next.js dengan TypeScript dan best practices modern web development.
+
+## Tech Stack
+- **Framework**: Next.js 14+ (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **Form Handling**: React Hook Form + Zod (validation)
+- **HTTP Client**: Axios atau Fetch API
+- **State Management**: React Context API / Zustand (untuk complex state)
+- **UI Components**: shadcn/ui atau custom components
+- **Icons**: Lucide React atau Heroicons
+- **Toast Notifications**: react-hot-toast atau sonner
+- **Number Formatting**: react-number-format atau intl.NumberFormat
+
+## Project Structure
+```
+web-deposit/
+├── app/                          # Next.js App Router
+│   ├── layout.tsx               # Root layout
+│   ├── page.tsx                 # Home/Deposit page
+│   ├── success/                 # Success page after payment
+│   │   └── page.tsx
+│   ├── api/                     # API routes (if needed)
+│   └── globals.css              # Global styles
+├── components/
+│   ├── ui/                      # Reusable UI components
+│   │   ├── button.tsx
+│   │   ├── input.tsx
+│   │   ├── select.tsx
+│   │   ├── card.tsx
+│   │   ├── toast.tsx
+│   │   └── loading.tsx
+│   ├── deposit/
+│   │   ├── DepositForm.tsx      # Main deposit form
+│   │   ├── AmountInput.tsx      # Amount input with formatting
+│   │   ├── PhoneInput.tsx       # Phone number input
+│   │   ├── PaymentMethodSelect.tsx  # Payment method selection
+│   │   └── PaymentSummary.tsx   # Payment summary card
+│   └── layout/
+│       ├── Header.tsx
+│       └── Footer.tsx
+├── lib/
+│   ├── api.ts                   # API client configuration
+│   ├── utils.ts                 # Utility functions
+│   ├── validation.ts            # Zod schemas
+│   └── constants.ts             # Constants (payment methods, etc)
+├── hooks/
+│   ├── useDeposit.ts            # Custom hook for deposit
+│   └── usePaymentMethods.ts     # Custom hook for payment methods
+├── types/
+│   ├── deposit.ts               # TypeScript types
+│   └── api.ts                   # API response types
+├── public/
+│   └── images/                  # Static images
+├── tailwind.config.ts
+├── tsconfig.json
+├── next.config.js
+└── package.json
+```
+
+## API Integration
+
+### API Client Setup
+```typescript
+// lib/api.ts
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
+export const apiClient = {
+  async createDeposit(data: CreateDepositRequest): Promise<CreateDepositResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/deposit/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to create deposit');
+    }
+
+    return response.json();
+  },
+};
+```
+
+### TypeScript Types
+```typescript
+// types/deposit.ts
+export type PaymentMethod = 'BANK' | 'RETAIL' | 'QRIS' | 'EWALLET' | 'ALL';
+
+export interface CreateDepositRequest {
+  amount: number;
+  phone_number?: string;
+  payment_method: PaymentMethod;
+}
+
+export interface PaymentMethodInfo {
+  invoice_id: string;
+  invoice_url: string;
+  amount: number;
+  status: string;
+}
+
+export interface CreateDepositResponse {
+  ticket_id: number;
+  invoice_url: string;
+  payment_method: PaymentMethod;
+  amount: number;
+  payment_methods?: Record<string, PaymentMethodInfo>;
+}
+```
+
+## Form Validation
+
+### Zod Schema
+```typescript
+// lib/validation.ts
+import { z } from 'zod';
+
+export const depositFormSchema = z.object({
+  amount: z
+    .number()
+    .min(10000, 'Minimum deposit adalah Rp 10.000')
+    .max(100000000, 'Maximum deposit adalah Rp 100.000.000')
+    .refine((val) => val > 0, 'Amount harus lebih dari 0'),
+  phone_number: z
+    .string()
+    .optional()
+    .refine(
+      (val) => !val || /^08\d{9,11}$/.test(val),
+      'Format nomor telepon tidak valid (contoh: 081234567890)'
+    ),
+  payment_method: z.enum(['VA_BANK', 'RETAIL', 'QRIS', 'EWALLET', 'ALL'], {
+    required_error: 'Pilih metode pembayaran',
+  }),
+});
+
+export type DepositFormData = z.infer<typeof depositFormSchema>;
+```
+
+## Components Implementation
+
+### Main Deposit Form
+```typescript
+// components/deposit/DepositForm.tsx
+'use client';
+
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { depositFormSchema, DepositFormData } from '@/lib/validation';
+import { apiClient } from '@/lib/api';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import toast from 'react-hot-toast';
+import AmountInput from './AmountInput';
+import PhoneInput from './PhoneInput';
+import PaymentMethodSelect from './PaymentMethodSelect';
+import PaymentSummary from './PaymentSummary';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+
+export default function DepositForm() {
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
+  const [calculatedAmount, setCalculatedAmount] = useState<number | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors },
+  } = useForm<DepositFormData>({
+    resolver: zodResolver(depositFormSchema),
+    defaultValues: {
+      amount: 0,
+      phone_number: '',
+      payment_method: 'VA_BANK',
+    },
+  });
+
+  const amount = watch('amount');
+  const paymentMethod = watch('payment_method');
+
+  // Calculate total amount with fee
+  useEffect(() => {
+    if (amount > 0 && paymentMethod) {
+      // Calculate fee based on payment method
+      const fee = calculateFee(amount, paymentMethod);
+      setCalculatedAmount(amount + fee);
+    }
+  }, [amount, paymentMethod]);
+
+  const onSubmit = async (data: DepositFormData) => {
+    setIsLoading(true);
+    try {
+      const response = await apiClient.createDeposit({
+        amount: data.amount,
+        phone_number: data.phone_number || undefined,
+        payment_method: data.payment_method,
+      });
+
+      toast.success('Invoice berhasil dibuat!');
+      
+      // Redirect to Xendit checkout or success page
+      if (response.invoice_url) {
+        window.location.href = response.invoice_url;
+      } else {
+        router.push(`/success?ticket_id=${response.ticket_id}`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Gagal membuat deposit');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Card className="p-6">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <AmountInput
+          {...register('amount', { valueAsNumber: true })}
+          error={errors.amount?.message}
+        />
+
+        <PhoneInput
+          {...register('phone_number')}
+          error={errors.phone_number?.message}
+        />
+
+        <PaymentMethodSelect
+          {...register('payment_method')}
+          error={errors.payment_method?.message}
+        />
+
+        {calculatedAmount && (
+          <PaymentSummary
+            baseAmount={amount}
+            totalAmount={calculatedAmount}
+            paymentMethod={paymentMethod}
+          />
+        )}
+
+        <Button
+          type="submit"
+          disabled={isLoading}
+          className="w-full"
+          size="lg"
+        >
+          {isLoading ? 'Memproses...' : 'Buat Invoice'}
+        </Button>
+      </form>
+    </Card>
+  );
+}
+```
+
+### Amount Input with Formatting
+```typescript
+// components/deposit/AmountInput.tsx
+'use client';
+
+import { forwardRef } from 'react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { formatCurrency } from '@/lib/utils';
+
+interface AmountInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  error?: string;
+}
+
+const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
+  ({ error, ...props }, ref) => {
+    return (
+      <div className="space-y-2">
+        <Label htmlFor="amount">Nominal Deposit</Label>
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+            Rp
+          </span>
+          <Input
+            id="amount"
+            ref={ref}
+            type="number"
+            placeholder="100000"
+            className="pl-10"
+            min="10000"
+            max="100000000"
+            step="1000"
+            {...props}
+          />
+        </div>
+        {error && (
+          <p className="text-sm text-red-500">{error}</p>
+        )}
+        <p className="text-xs text-gray-500">
+          Minimum: Rp 10.000 | Maximum: Rp 100.000.000
+        </p>
+      </div>
+    );
+  }
+);
+
+AmountInput.displayName = 'AmountInput';
+
+export default AmountInput;
+```
+
+### Payment Method Select
+```typescript
+// components/deposit/PaymentMethodSelect.tsx
+'use client';
+
+import { forwardRef } from 'react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { PaymentMethod } from '@/types/deposit';
+import { PAYMENT_METHODS } from '@/lib/constants';
+
+interface PaymentMethodSelectProps {
+  error?: string;
+  value?: PaymentMethod;
+  onChange?: (value: PaymentMethod) => void;
+}
+
+const PaymentMethodSelect = forwardRef<HTMLButtonElement, PaymentMethodSelectProps>(
+  ({ error, value, onChange, ...props }, ref) => {
+    return (
+      <div className="space-y-2">
+        <Label htmlFor="payment_method">Metode Pembayaran</Label>
+        <Select value={value} onValueChange={onChange}>
+          <SelectTrigger id="payment_method" ref={ref} {...props}>
+            <SelectValue placeholder="Pilih metode pembayaran" />
+          </SelectTrigger>
+          <SelectContent>
+            {PAYMENT_METHODS.map((method) => (
+              <SelectItem key={method.value} value={method.value}>
+                <div className="flex items-center gap-2">
+                  {method.icon}
+                  <span>{method.label}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {error && (
+          <p className="text-sm text-red-500">{error}</p>
+        )}
+      </div>
+    );
+  }
+);
+
+PaymentMethodSelect.displayName = 'PaymentMethodSelect';
+
+export default PaymentMethodSelect;
+```
+
+### Payment Summary
+```typescript
+// components/deposit/PaymentSummary.tsx
+'use client';
+
+import { Card } from '@/components/ui/card';
+import { formatCurrency } from '@/lib/utils';
+import { calculateFee } from '@/lib/utils';
+import { PaymentMethod } from '@/types/deposit';
+
+interface PaymentSummaryProps {
+  baseAmount: number;
+  totalAmount: number;
+  paymentMethod: PaymentMethod;
+}
+
+export default function PaymentSummary({
+  baseAmount,
+  totalAmount,
+  paymentMethod,
+}: PaymentSummaryProps) {
+  const fee = calculateFee(baseAmount, paymentMethod);
+
+  return (
+    <Card className="p-4 bg-gray-50">
+      <h3 className="font-semibold mb-3">Ringkasan Pembayaran</h3>
+      <div className="space-y-2 text-sm">
+        <div className="flex justify-between">
+          <span>Nominal Deposit:</span>
+          <span>{formatCurrency(baseAmount)}</span>
+        </div>
+        <div className="flex justify-between text-gray-600">
+          <span>Biaya Admin:</span>
+          <span>{formatCurrency(fee)}</span>
+        </div>
+        <div className="border-t pt-2 flex justify-between font-semibold">
+          <span>Total Pembayaran:</span>
+          <span className="text-primary">{formatCurrency(totalAmount)}</span>
+        </div>
+      </div>
+    </Card>
+  );
+}
+```
+
+## Utility Functions
+
+### Currency Formatting
+```typescript
+// lib/utils.ts
+export function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    minimumFractionDigits: 0,
+  }).format(amount);
+}
+
+export function calculateFee(amount: number, paymentMethod: string): number {
+  // Fee configuration (should match backend)
+  const fees = {
+    VA_BANK: 2500,
+    RETAIL: 2500,
+    QRIS: amount * 0.01, // 1%
+    EWALLET: amount * 0.015, // 1.5%
+    ALL: 0, // Will be calculated per method
+  };
+
+  const fee = fees[paymentMethod as keyof typeof fees] || 0;
+  return Math.round(fee);
+}
+
+export function formatPhoneNumber(phone: string): string {
+  // Remove non-digits
+  const digits = phone.replace(/\D/g, '');
+  
+  // Format: 08XX-XXXX-XXXX
+  if (digits.length >= 4) {
+    return `${digits.slice(0, 4)}-${digits.slice(4, 8)}-${digits.slice(8, 12)}`;
+  }
+  return digits;
+}
+```
+
+### Constants
+```typescript
+// lib/constants.ts
+import { PaymentMethod } from '@/types/deposit';
+import { CreditCard, Smartphone, QrCode, Wallet } from 'lucide-react';
+
+export const PAYMENT_METHODS: Array<{
+  value: PaymentMethod;
+  label: string;
+  icon: React.ReactNode;
+  description: string;
+}> = [
+  {
+    value: 'VA_BANK',
+    label: 'Virtual Account',
+    icon: <CreditCard className="w-4 h-4" />,
+    description: 'BCA, BNI, BRI, MANDIRI, dll',
+  },
+  {
+    value: 'RETAIL',
+    label: 'Retail Outlet',
+    icon: <Smartphone className="w-4 h-4" />,
+    description: 'Alfamart, Indomaret',
+  },
+  {
+    value: 'QRIS',
+    label: 'QRIS',
+    icon: <QrCode className="w-4 h-4" />,
+    description: 'Scan QR Code',
+  },
+  {
+    value: 'EWALLET',
+    label: 'E-Wallet',
+    icon: <Wallet className="w-4 h-4" />,
+    description: 'OVO, DANA, ShopeePay, dll',
+  },
+  {
+    value: 'ALL',
+    label: 'Semua Metode',
+    icon: <CreditCard className="w-4 h-4" />,
+    description: 'Buat semua metode pembayaran',
+  },
+];
+
+export const MIN_AMOUNT = 10000;
+export const MAX_AMOUNT = 100000000;
+```
+
+## Best Practices
+
+### 1. Form Handling
+- ✅ Use React Hook Form untuk performa dan UX yang lebih baik
+- ✅ Use Zod untuk validation schema (type-safe)
+- ✅ Implement real-time validation feedback
+- ✅ Show loading states saat submit
+- ✅ Disable form saat loading untuk prevent double submission
+- ✅ Format input values (currency, phone number) untuk better UX
+
+### 2. Error Handling
+- ✅ Display validation errors di bawah setiap field
+- ✅ Show toast notifications untuk success/error
+- ✅ Handle API errors dengan user-friendly messages
+- ✅ Implement retry mechanism untuk failed requests
+- ✅ Log errors untuk debugging (console.error in development)
+
+### 3. User Experience
+- ✅ Show payment summary dengan breakdown (amount + fee)
+- ✅ Real-time calculation saat user input amount
+- ✅ Clear CTA buttons dengan loading states
+- ✅ Responsive design (mobile-first)
+- ✅ Accessible forms (proper labels, ARIA attributes)
+- ✅ Smooth transitions dan animations
+- ✅ Show invoice URL atau redirect ke Xendit checkout page
+
+### 4. State Management
+- ✅ Use React Hook Form untuk form state
+- ✅ Use React Context atau Zustand untuk global state (if needed)
+- ✅ Minimize re-renders dengan proper memoization
+- ✅ Use React Query atau SWR untuk API state management (optional)
+
+### 5. Performance
+- ✅ Code splitting dengan dynamic imports
+- ✅ Optimize images dengan Next.js Image component
+- ✅ Use React.memo untuk expensive components
+- ✅ Lazy load components yang tidak critical
+- ✅ Minimize bundle size
+
+### 6. Security
+- ✅ Validate all inputs di client dan server
+- ✅ Sanitize user inputs sebelum send ke API
+- ✅ Use environment variables untuk API URLs
+- ✅ Implement rate limiting (if needed)
+- ✅ Never expose API keys di client-side code
+
+### 7. Accessibility
+- ✅ Proper semantic HTML
+- ✅ ARIA labels untuk screen readers
+- ✅ Keyboard navigation support
+- ✅ Focus management
+- ✅ Color contrast compliance (WCAG AA)
+
+### 8. Responsive Design
+- ✅ Mobile-first approach
+- ✅ Breakpoints: sm (640px), md (768px), lg (1024px), xl (1280px)
+- ✅ Touch-friendly buttons (min 44x44px)
+- ✅ Readable font sizes (min 16px untuk mobile)
+- ✅ Proper spacing dan padding
+
+## Environment Variables
+
+```env
+# .env.local
+NEXT_PUBLIC_API_URL=http://localhost:8080
+NEXT_PUBLIC_APP_NAME=Xendit Deposit
+```
+
+## Dependencies (package.json)
+
+```json
+{
+  "dependencies": {
+    "next": "^14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hook-form": "^7.48.0",
+    "@hookform/resolvers": "^3.3.0",
+    "zod": "^3.22.0",
+    "axios": "^1.6.0",
+    "react-hot-toast": "^2.4.0",
+    "lucide-react": "^0.294.0",
+    "tailwindcss": "^3.3.0",
+    "clsx": "^2.0.0",
+    "tailwind-merge": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "typescript": "^5.2.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "eslint": "^8.50.0",
+    "eslint-config-next": "^14.0.0"
+  }
+}
+```
+
+## Page Structure
+
+### Home/Deposit Page
+```typescript
+// app/page.tsx
+import DepositForm from '@/components/deposit/DepositForm';
+import Header from '@/components/layout/Header';
+
+export default function Home() {
+  return (
+    <main className="min-h-screen bg-gray-50">
+      <Header />
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-2xl mx-auto">
+          <h1 className="text-3xl font-bold text-center mb-8">
+            Deposit Saldo
+          </h1>
+          <DepositForm />
+        </div>
+      </div>
+    </main>
+  );
+}
+```
+
+### Success Page
+```typescript
+// app/success/page.tsx
+'use client';
+
+import { useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { CheckCircle } from 'lucide-react';
+
+export default function SuccessPage() {
+  const searchParams = useSearchParams();
+  const ticketId = searchParams.get('ticket_id');
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <Card className="p-8 max-w-md w-full text-center">
+        <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+        <h1 className="text-2xl font-bold mb-2">Deposit Berhasil!</h1>
+        <p className="text-gray-600 mb-4">
+          Invoice telah dibuat. Silakan selesaikan pembayaran Anda.
+        </p>
+        {ticketId && (
+          <p className="text-sm text-gray-500 mb-6">
+            Ticket ID: {ticketId}
+          </p>
+        )}
+        <Button onClick={() => window.location.href = '/'}>
+          Kembali ke Beranda
+        </Button>
+      </Card>
+    </div>
+  );
+}
+```
+
+## Styling Guidelines
+
+### Tailwind CSS Configuration
+```typescript
+// tailwind.config.ts
+import type { Config } from 'tailwindcss';
+
+const config: Config = {
+  content: [
+    './pages/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          DEFAULT: '#3B82F6',
+          dark: '#2563EB',
+        },
+      },
+    },
+  },
+  plugins: [],
+};
+
+export default config;
+```
+
+## Testing Considerations
+
+- Unit tests untuk utility functions
+- Integration tests untuk form submission
+- E2E tests untuk complete user flow
+- Test error handling dan edge cases
+- Test responsive design di berbagai devices
+
+## Notes
+- Gunakan Server Components sebanyak mungkin untuk better performance
+- Use Client Components hanya untuk interactive elements
+- Implement proper error boundaries
+- Add analytics tracking (optional)
+- Implement SEO best practices
+- Consider adding dark mode support
+- Add loading skeletons untuk better perceived performance

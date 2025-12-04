@@ -1,0 +1,36 @@
+import DepositForm from '@/components/deposit/DepositForm';
+import Header from '@/components/layout/Header';
+import Footer from '@/components/layout/Footer';
+import { getPageTitle, getPageDescription } from '@/lib/payment-routes';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Deposit via QRIS',
+  description: 'Deposit saldo menggunakan QRIS - scan QR code untuk pembayaran',
+};
+
+export default function QRISPage() {
+  return (
+    <main className="min-h-screen bg-gray-50 flex flex-col">
+      <Header />
+      <div className="container mx-auto px-4 md:px-6 lg:px-8 py-6 md:py-8 lg:py-12 flex-1">
+        <div className="max-w-2xl mx-auto">
+          <div className="text-center mb-6 md:mb-8">
+            <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 mb-2 md:mb-3">
+              {getPageTitle('QRIS')}
+            </h1>
+            <p className="text-sm md:text-base text-gray-600 max-w-xl mx-auto">
+              {getPageDescription('QRIS')}
+            </p>
+          </div>
+          <DepositForm 
+            defaultPaymentMethod="QRIS" 
+            hidePaymentMethodSelect={true}
+          />
+        </div>
+      </div>
+      <Footer />
+    </main>
+  );
+}
+
