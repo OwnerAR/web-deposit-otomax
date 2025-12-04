@@ -37,20 +37,10 @@ function DepositFormContent({
   // Logging for debugging
   const shouldLog = process.env.NEXT_PUBLIC_ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
   
-  // Check token on mount - redirect to 404 if not present
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('authToken') || urlParams.get('token') || urlParams.get('auth_token');
-    
-    if (!token) {
-      console.error('[DepositForm] ❌ No token found in URL query parameter - redirecting to 404');
-      router.replace('/not-found');
-    }
-  }, [router]);
+  // Don't check token on mount - TokenInjector will inject token from cookie to URL
+  // Only check token when form is submitted to avoid race condition
   
-  // Helper function to extract and clean token from URL query parameter
+  // Helper function to extract and clean token from URL query parameter or cookie
   const getTokenFromQuery = (): string | null => {
     if (typeof window === 'undefined') return null;
     
@@ -60,6 +50,21 @@ function DepositFormContent({
     // Also try from Next.js searchParams
     if (!tokenFromUrl) {
       tokenFromUrl = searchParams.get('authToken') || searchParams.get('token') || searchParams.get('auth_token');
+    }
+    
+    // If no token in URL, try to get from cookie as fallback (TokenInjector might not have run yet)
+    if (!tokenFromUrl) {
+      const tokenCookie = document.cookie
+        .split('; ')
+        .find((row) => row.startsWith('_auth_token_temp='));
+      
+      if (tokenCookie) {
+        try {
+          tokenFromUrl = decodeURIComponent(tokenCookie.split('=')[1]);
+        } catch {
+          // Ignore decode error
+        }
+      }
     }
     
     if (!tokenFromUrl) {
