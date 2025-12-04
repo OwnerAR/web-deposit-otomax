@@ -41,32 +41,47 @@ export default function DepositForm({
   const shouldLog = process.env.NEXT_PUBLIC_ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
   
   // Helper function to get token directly from cookie or API
-  // This is called on-demand during form submit (not stored in state)
+  // Token sudah tersedia sejak pertama kali web di-load (disimpan oleh middleware)
+  // Kita hanya perlu membaca dari cookie yang sudah ada
   const getAuthToken = async (): Promise<string | null> => {
     if (typeof window === 'undefined') return null;
     
-    // Priority 1: Read from non-httpOnly cookie (fastest, client-side accessible)
+    // Priority 1: Read from non-httpOnly cookie (token sudah di-set oleh middleware saat load)
+    // Cookie ini sudah tersedia sejak pertama kali web di-load oleh aplikasi Android
     const cookies = document.cookie.split('; ');
     const cookieToken = cookies
-      .find(row => row.startsWith('auth_token_client='))
+      .find(row => row.trim().startsWith('auth_token_client='))
       ?.split('=')[1];
     
     if (cookieToken) {
-      const decodedToken = decodeURIComponent(cookieToken);
+      // Decode jika ada encoding (URI component atau lainnya)
+      let decodedToken = cookieToken;
+      try {
+        decodedToken = decodeURIComponent(cookieToken);
+      } catch {
+        // Jika bukan URI encoded, gunakan as-is
+        decodedToken = cookieToken;
+      }
+      
       if (shouldLog) {
         const maskedToken = decodedToken.length > 20 
           ? `${decodedToken.substring(0, 20)}...` 
           : decodedToken;
-        console.log('[DepositForm] Token from cookie:', maskedToken);
+        console.log('[DepositForm] ✅ Token dari cookie (sudah tersedia sejak load):', maskedToken);
       }
       return decodedToken;
     }
     
-    // Priority 2: Fetch from API endpoint (reads from httpOnly cookie)
+    if (shouldLog) {
+      console.log('[DepositForm] ⚠️ Token tidak ditemukan di cookie, mencoba fetch dari API...');
+      console.log('[DepositForm] Semua cookies:', cookies);
+    }
+    
+    // Priority 2: Fetch from API endpoint (reads from httpOnly cookie - fallback)
     try {
       const response = await fetch('/api/auth/get-token', {
         method: 'GET',
-        credentials: 'include',
+        credentials: 'include', // CRITICAL: Include cookies in request
       });
       
       if (response.ok) {
@@ -76,26 +91,30 @@ export default function DepositForm({
             const maskedToken = data.token.length > 20 
               ? `${data.token.substring(0, 20)}...` 
               : data.token;
-            console.log('[DepositForm] Token from API endpoint:', maskedToken);
+            console.log('[DepositForm] ✅ Token dari API endpoint (httpOnly cookie):', maskedToken);
           }
           return data.token;
         }
       }
     } catch (error) {
       if (shouldLog) {
-        console.log('[DepositForm] Failed to fetch token from API:', error);
+        console.log('[DepositForm] ❌ Failed to fetch token from API:', error);
       }
     }
     
-    // Priority 3: Use token from context (if available)
+    // Priority 3: Use token from context (if available - fallback)
     if (authTokenFromContext) {
       if (shouldLog) {
         const maskedToken = authTokenFromContext.length > 20 
           ? `${authTokenFromContext.substring(0, 20)}...` 
           : authTokenFromContext;
-        console.log('[DepositForm] Token from context:', maskedToken);
+        console.log('[DepositForm] ✅ Token dari context (fallback):', maskedToken);
       }
       return authTokenFromContext;
+    }
+    
+    if (shouldLog) {
+      console.log('[DepositForm] ❌ Token tidak ditemukan dari semua sumber');
     }
     
     return null;
