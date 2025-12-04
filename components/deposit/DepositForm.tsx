@@ -4,8 +4,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { depositFormSchema, DepositFormData } from '@/lib/validation';
 import { apiClient } from '@/lib/api';
-import { useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
 import toast from 'react-hot-toast';
 import AmountInput from './AmountInput';
 import PhoneInput from './PhoneInput';
@@ -22,26 +22,111 @@ interface DepositFormProps {
   hidePaymentMethodSelect?: boolean;
 }
 
-export default function DepositForm({ 
+function DepositFormContent({ 
   defaultPaymentMethod = 'ALL',
   hidePaymentMethodSelect = false 
-}: DepositFormProps = {}) {
+}: DepositFormProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const [calculatedAmount, setCalculatedAmount] = useState<number | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null); // Store token in state
   
   // Get fee configuration from context (fetched once at app level)
   const { fees: feesConfig } = useFeesContext();
   
-  // Token hanya dari URL query parameter - tidak perlu context yang kompleks
-  
   // Logging for debugging
   const shouldLog = process.env.NEXT_PUBLIC_ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
   
-  // Helper function to get token from URL query parameter (ONLY SOURCE)
+  // Extract and store token from URL query parameter on mount
+  // Token akan dipertahankan di state sampai submit - ini memastikan token tetap tersedia
+  useEffect(() => {
+    const extractAndStoreToken = () => {
+      if (typeof window === 'undefined') return;
+      
+      // ALWAYS log for debugging
+      console.log('[DepositForm] ===== EXTRACTING TOKEN ON MOUNT =====');
+      console.log('[DepositForm] Current URL:', window.location.href);
+      console.log('[DepositForm] Search:', window.location.search);
+      
+      // Try to get from URL query parameter
+      const urlParams = new URLSearchParams(window.location.search);
+      let tokenFromUrl = urlParams.get('authToken') || urlParams.get('token') || urlParams.get('auth_token');
+      
+      // Also try from Next.js searchParams (as fallback)
+      if (!tokenFromUrl) {
+        tokenFromUrl = searchParams.get('authToken') || searchParams.get('token') || searchParams.get('auth_token');
+      }
+      
+      if (!tokenFromUrl) {
+        console.log('[DepositForm] ❌ No token found in URL query parameters on mount');
+        console.log('[DepositForm] All URL params:', Array.from(urlParams.keys()));
+        console.log('[DepositForm] All searchParams:', Array.from(searchParams.keys()));
+        return;
+      }
+      
+      console.log('[DepositForm] ✅ Token found in URL on mount, extracting...');
+      console.log('[DepositForm] Raw token (first 50 chars):', tokenFromUrl.substring(0, 50) + '...');
+      console.log('[DepositForm] Raw token length:', tokenFromUrl.length);
+      
+      // Decode URL encoding (handle multiple encodings)
+      let decodedToken = tokenFromUrl;
+      try {
+        let previousDecode = decodedToken;
+        for (let i = 0; i < 3; i++) {
+          const newDecode = decodeURIComponent(decodedToken);
+          if (newDecode === previousDecode) {
+            console.log(`[DepositForm] Decode iteration ${i}: No change, stopping`);
+            break;
+          }
+          decodedToken = newDecode;
+          previousDecode = decodedToken;
+        }
+        console.log('[DepositForm] After decode (first 50 chars):', decodedToken.substring(0, 50) + '...');
+      } catch (error) {
+        console.log('[DepositForm] ⚠️ Decode failed, using as-is:', error);
+        decodedToken = tokenFromUrl;
+      }
+      
+      // Remove quotes jika ada (format: "ENC Key=...")
+      let cleanToken = decodedToken.trim();
+      if (cleanToken.startsWith('"') && cleanToken.endsWith('"')) {
+        cleanToken = cleanToken.slice(1, -1).trim();
+        console.log('[DepositForm] Removed quotes');
+      }
+      
+      if (cleanToken) {
+        setAuthToken(cleanToken); // Store token in state - akan dipertahankan sampai submit
+        const maskedToken = cleanToken.length > 20 
+          ? `${cleanToken.substring(0, 20)}...` 
+          : cleanToken;
+        console.log('[DepositForm] ✅✅✅ Token stored in state (will persist until submit):', maskedToken);
+        console.log('[DepositForm] Token length:', cleanToken.length);
+      } else {
+        console.error('[DepositForm] ❌ Token is empty after cleaning');
+      }
+    };
+    
+    extractAndStoreToken();
+  }, [searchParams]); // Only depend on searchParams, not shouldLog
+  
+  // Helper function to get token (from state - token sudah dipertahankan sampai submit)
   // Format: ?authToken="ENC Key=..." 
   // Middleware akan redirect dengan format ini saat menerima Authorization header
+  // Token sudah disimpan di state saat component mount, sehingga tetap tersedia sampai submit
   const getAuthToken = (): string | null => {
+    // Use token from state (stored on mount, persists until submit)
+    if (authToken) {
+      if (shouldLog) {
+        const maskedToken = authToken.length > 20 
+          ? `${authToken.substring(0, 20)}...` 
+          : authToken;
+        console.log('[DepositForm] ✅ Using token from state (persisted):', maskedToken);
+      }
+      return authToken;
+    }
+    
+    // Priority 2: Try to get from URL query parameter (fallback)
     if (typeof window === 'undefined') return null;
     
     if (shouldLog) {
@@ -282,6 +367,15 @@ export default function DepositForm({
         </Button>
       </form>
     </Card>
+  );
+}
+
+// Wrap with Suspense to handle useSearchParams (required for Next.js)
+export default function DepositForm(props: DepositFormProps) {
+  return (
+    <Suspense fallback={<div className="p-4 text-center">Loading...</div>}>
+      <DepositFormContent {...props} />
+    </Suspense>
   );
 }
 
