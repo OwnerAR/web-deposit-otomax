@@ -5,6 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { FeesProvider } from '@/contexts/FeesContext';
 import AuthProviderComponent from '@/components/auth/AuthProvider';
+import TokenScript from '@/components/auth/TokenScript';
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -25,6 +26,7 @@ export default function RootLayout({
   return (
     <html lang="id">
       <body className={`${inter.variable} font-sans antialiased`}>
+        <TokenScript />
         <AuthProvider>
           <AuthProviderComponent>
             <FeesProvider>

@@ -35,7 +35,39 @@ export default function DepositForm({
   const { fees: feesConfig } = useFeesContext();
   
   // Get auth token from context (stored automatically, not shown in UI)
-  const { token: authToken, isLoading: isLoadingAuth } = useAuth();
+  const { token: authTokenFromContext, isLoading: isLoadingAuth } = useAuth();
+  
+  // Fallback: Also check sessionStorage directly (in case context hasn't loaded yet)
+  const [authTokenFromStorage, setAuthTokenFromStorage] = useState<string | null>(null);
+  
+  useEffect(() => {
+    // Check sessionStorage as fallback
+    if (typeof window !== 'undefined') {
+      const token = sessionStorage.getItem('auth_token');
+      setAuthTokenFromStorage(token);
+    }
+  }, []);
+  
+  // Use token from context first, fallback to sessionStorage
+  const authToken = authTokenFromContext || authTokenFromStorage;
+  
+  // Logging for debugging
+  const shouldLog = process.env.NEXT_PUBLIC_ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
+  
+  useEffect(() => {
+    if (shouldLog) {
+      console.log('[DepositForm] Auth token from context:', authTokenFromContext ? '✅ Present' : '❌ Not present');
+      console.log('[DepositForm] Auth token from sessionStorage:', authTokenFromStorage ? '✅ Present' : '❌ Not present');
+      console.log('[DepositForm] Final auth token:', authToken ? '✅ Present' : '❌ Not present');
+      if (authToken) {
+        const maskedToken = authToken.length > 20 
+          ? `${authToken.substring(0, 20)}...` 
+          : authToken;
+        console.log('[DepositForm] Auth token value:', maskedToken);
+      }
+      console.log('[DepositForm] Auth loading:', isLoadingAuth);
+    }
+  }, [authToken, authTokenFromContext, authTokenFromStorage, isLoadingAuth, shouldLog]);
 
   const {
     register,
@@ -68,6 +100,19 @@ export default function DepositForm({
 
   const onSubmit = async (data: DepositFormData) => {
     setIsLoading(true);
+    
+    // Logging before submit
+    if (shouldLog) {
+      console.log('[DepositForm] Submitting form...');
+      console.log('[DepositForm] Auth token available:', authToken ? '✅ Yes' : '❌ No');
+      if (authToken) {
+        const maskedToken = authToken.length > 20 
+          ? `${authToken.substring(0, 20)}...` 
+          : authToken;
+        console.log('[DepositForm] Auth token value:', maskedToken);
+      }
+    }
+    
     try {
       // Prepare request data with token injected in body (not shown in UI)
       const requestData: CreateDepositRequest = {
@@ -77,6 +122,15 @@ export default function DepositForm({
         // Inject token into body if available (automatically, not shown in form)
         ...(authToken && { auth_token: authToken }),
       };
+
+      if (shouldLog) {
+        console.log('[DepositForm] Request data prepared:', {
+          amount: requestData.amount,
+          payment_method: requestData.payment_method,
+          phone_number: requestData.phone_number ? '***' : undefined,
+          auth_token: requestData.auth_token ? '*** (injected)' : '❌ Not injected',
+        });
+      }
 
       const response = await apiClient.createDeposit(requestData);
 
