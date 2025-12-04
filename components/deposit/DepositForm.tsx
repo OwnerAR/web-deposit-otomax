@@ -44,20 +44,34 @@ export default function DepositForm({
   const getAuthToken = (): string | null => {
     if (typeof window === 'undefined') return null;
     
+    if (shouldLog) {
+      console.log('[DepositForm] Getting token from URL...');
+      console.log('[DepositForm] Current URL:', window.location.href);
+      console.log('[DepositForm] Search:', window.location.search);
+    }
+    
     const urlParams = new URLSearchParams(window.location.search);
+    const allParams = Array.from(urlParams.entries());
+    
+    if (shouldLog) {
+      console.log('[DepositForm] All query params:', allParams.map(([key]) => key));
+    }
+    
     let tokenFromUrl = urlParams.get('authToken') || urlParams.get('token') || urlParams.get('auth_token');
     
     if (!tokenFromUrl) {
       if (shouldLog) {
         console.log('[DepositForm] ❌ No token found in URL query parameters');
-        console.log('[DepositForm] Current URL:', window.location.href);
-        console.log('[DepositForm] Query params:', Array.from(urlParams.entries()));
+        console.log('[DepositForm] Checked params: authToken, token, auth_token');
+        console.log('[DepositForm] All params:', allParams);
       }
       return null;
     }
     
     if (shouldLog) {
-      console.log('[DepositForm] Raw token from URL:', tokenFromUrl.substring(0, 50) + '...');
+      console.log('[DepositForm] ✅ Token found in URL');
+      console.log('[DepositForm] Raw token (first 100 chars):', tokenFromUrl.substring(0, 100) + '...');
+      console.log('[DepositForm] Raw token length:', tokenFromUrl.length);
     }
     
     // Decode URL encoding (handle multiple encodings)
@@ -66,19 +80,38 @@ export default function DepositForm({
       // Try decode multiple times (handle double encoding)
       let previousDecode = decodedToken;
       for (let i = 0; i < 3; i++) {
-        decodedToken = decodeURIComponent(decodedToken);
-        if (decodedToken === previousDecode) break; // Stop if no change
+        const newDecode = decodeURIComponent(decodedToken);
+        if (newDecode === previousDecode) {
+          if (shouldLog && i > 0) {
+            console.log(`[DepositForm] Decode iteration ${i}: No change, stopping`);
+          }
+          break; // Stop if no change
+        }
+        decodedToken = newDecode;
         previousDecode = decodedToken;
       }
-    } catch {
-      // Jika decode gagal, gunakan as-is
+      
+      if (shouldLog) {
+        console.log('[DepositForm] After decode (first 100 chars):', decodedToken.substring(0, 100) + '...');
+        console.log('[DepositForm] After decode length:', decodedToken.length);
+      }
+    } catch (error) {
+      if (shouldLog) {
+        console.log('[DepositForm] ⚠️ Decode failed, using as-is:', error);
+      }
       decodedToken = tokenFromUrl;
     }
     
     // Remove quotes jika ada (format: "ENC Key=...")
-    let cleanToken = decodedToken;
+    let cleanToken = decodedToken.trim();
     if (cleanToken.startsWith('"') && cleanToken.endsWith('"')) {
-      cleanToken = cleanToken.slice(1, -1); // Remove first and last character (quotes)
+      cleanToken = cleanToken.slice(1, -1).trim(); // Remove first and last character (quotes)
+      
+      if (shouldLog) {
+        console.log('[DepositForm] Removed quotes');
+        console.log('[DepositForm] After removing quotes (first 100 chars):', cleanToken.substring(0, 100) + '...');
+        console.log('[DepositForm] After removing quotes length:', cleanToken.length);
+      }
     }
     
     if (cleanToken) {
@@ -86,7 +119,7 @@ export default function DepositForm({
         const maskedToken = cleanToken.length > 20 
           ? `${cleanToken.substring(0, 20)}...` 
           : cleanToken;
-        console.log('[DepositForm] ✅ Token dari URL query parameter:', maskedToken);
+        console.log('[DepositForm] ✅ Token final (cleaned):', maskedToken);
         console.log('[DepositForm] Token length:', cleanToken.length);
       }
       return cleanToken;
@@ -94,6 +127,7 @@ export default function DepositForm({
     
     if (shouldLog) {
       console.log('[DepositForm] ❌ Token is empty after cleaning');
+      console.log('[DepositForm] Decoded token was:', decodedToken);
     }
     
     return null;
@@ -139,13 +173,26 @@ export default function DepositForm({
       // Get token from URL query parameter (ONLY SOURCE)
       const authToken = getAuthToken();
       
-      if (shouldLog) {
-        console.log('[DepositForm] Token retrieved:', authToken ? '✅ Yes' : '❌ No');
-        if (authToken) {
-          const maskedToken = authToken.length > 20 
-            ? `${authToken.substring(0, 20)}...` 
-            : authToken;
-          console.log('[DepositForm] Token value:', maskedToken);
+      // ALWAYS log token retrieval (critical for debugging)
+      console.log('[DepositForm] ===== TOKEN RETRIEVAL =====');
+      console.log('[DepositForm] Token retrieved:', authToken ? '✅ Yes' : '❌ No');
+      console.log('[DepositForm] Current URL:', typeof window !== 'undefined' ? window.location.href : 'N/A');
+      console.log('[DepositForm] Query params:', typeof window !== 'undefined' ? window.location.search : 'N/A');
+      
+      if (authToken) {
+        const maskedToken = authToken.length > 20 
+          ? `${authToken.substring(0, 20)}...` 
+          : authToken;
+        console.log('[DepositForm] Token value (masked):', maskedToken);
+        console.log('[DepositForm] Token length:', authToken.length);
+      } else {
+        console.error('[DepositForm] ❌❌❌ TOKEN IS NULL - CHECK URL QUERY PARAMETER ❌❌❌');
+        if (typeof window !== 'undefined') {
+          const urlParams = new URLSearchParams(window.location.search);
+          console.error('[DepositForm] Available query params:', Array.from(urlParams.keys()));
+          console.error('[DepositForm] authToken param:', urlParams.get('authToken'));
+          console.error('[DepositForm] token param:', urlParams.get('token'));
+          console.error('[DepositForm] auth_token param:', urlParams.get('auth_token'));
         }
       }
       
@@ -158,13 +205,15 @@ export default function DepositForm({
         ...(authToken && { auth_token: authToken }),
       };
 
-      if (shouldLog) {
-        console.log('[DepositForm] Request data prepared:', {
-          amount: requestData.amount,
-          payment_method: requestData.payment_method,
-          phone_number: requestData.phone_number ? '***' : undefined,
-          auth_token: requestData.auth_token ? '*** (injected)' : '❌ Not injected',
-        });
+      // ALWAYS log request data (critical for debugging)
+      console.log('[DepositForm] ===== REQUEST DATA PREPARED =====');
+      console.log('[DepositForm] Amount:', requestData.amount);
+      console.log('[DepositForm] Payment method:', requestData.payment_method);
+      console.log('[DepositForm] Phone number:', requestData.phone_number ? '***' : undefined);
+      console.log('[DepositForm] Auth token in body:', requestData.auth_token ? '✅ INJECTED' : '❌ NOT INJECTED');
+      
+      if (!requestData.auth_token) {
+        console.error('[DepositForm] ❌❌❌ WARNING: Token will NOT be sent to backend! ❌❌❌');
       }
 
       const response = await apiClient.createDeposit(requestData);
