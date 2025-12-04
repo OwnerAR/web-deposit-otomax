@@ -1,7 +1,6 @@
 import { CreateDepositRequest, CreateDepositResponse } from '@/types/deposit';
 import { ApiError } from '@/types/api';
 import { FeesResponse } from '@/types/fees';
-import { getAuthToken } from './auth';
 
 // Use Next.js API route as proxy to handle Authorization header
 const API_ROUTE = '/api/deposit/create';
