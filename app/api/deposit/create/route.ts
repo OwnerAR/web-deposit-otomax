@@ -13,20 +13,35 @@ export async function POST(request: NextRequest) {
       console.log('[API /deposit/create] All request headers:', Object.fromEntries(request.headers.entries()));
     }
     
-    // Priority 1: Get Authorization header from current request (forwarded by middleware)
-    let authHeader = request.headers.get('authorization');
+    // Priority 1: Get Authorization header from custom header (forwarded by middleware)
+    // Middleware sets x-auth-token header when forwarding to API routes
+    let authHeader = request.headers.get('x-auth-token');
     
     if (shouldLog) {
-      console.log('[API /deposit/create] Authorization header from request headers:', authHeader ? '✅ Present' : '❌ Not present');
+      console.log('[API /deposit/create] x-auth-token header from middleware:', authHeader ? '✅ Present' : '❌ Not present');
       if (authHeader) {
         const maskedHeader = authHeader.length > 30 
           ? `${authHeader.substring(0, 30)}...` 
           : authHeader;
-        console.log('[API /deposit/create] Authorization header value:', maskedHeader);
+        console.log('[API /deposit/create] x-auth-token value:', maskedHeader);
       }
     }
     
-    // Priority 2: Get Authorization header from cookie (stored by middleware AS-IS)
+    // Priority 2: Get Authorization header from request (if sent directly)
+    if (!authHeader) {
+      authHeader = request.headers.get('authorization');
+      if (shouldLog) {
+        console.log('[API /deposit/create] Authorization header from request:', authHeader ? '✅ Present' : '❌ Not present');
+        if (authHeader) {
+          const maskedHeader = authHeader.length > 30 
+            ? `${authHeader.substring(0, 30)}...` 
+            : authHeader;
+          console.log('[API /deposit/create] Authorization header value:', maskedHeader);
+        }
+      }
+    }
+    
+    // Priority 3: Get Authorization header from cookie (stored by middleware AS-IS)
     if (!authHeader) {
       const allCookies = request.cookies.getAll();
       if (shouldLog) {

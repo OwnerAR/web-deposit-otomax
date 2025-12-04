@@ -5,18 +5,20 @@ import { NextRequest, NextResponse } from 'next/server';
  * and store it in a cookie for subsequent API requests
  */
 export function middleware(request: NextRequest) {
-  // Check if Authorization header is present (from Android WebView)
-  const authHeader = request.headers.get('authorization');
-  
   // Logging (can be enabled via ENABLE_AUTH_LOGGING env var, or auto-enabled in development)
   const shouldLog = process.env.ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
   
   if (shouldLog) {
     console.log('[Middleware] Request URL:', request.url);
     console.log('[Middleware] Request path:', request.nextUrl.pathname);
-    console.log('[Middleware] Authorization header received:', authHeader ? '✅ Present' : '❌ Not present');
+  }
+  
+  // Priority 1: Check if Authorization header is present in current request (from Android WebView)
+  let authHeader = request.headers.get('authorization');
+  
+  if (shouldLog) {
+    console.log('[Middleware] Authorization header from request:', authHeader ? '✅ Present' : '❌ Not present');
     if (authHeader) {
-      // Mask token for security (show first 20 chars only)
       const maskedToken = authHeader.length > 20 
         ? `${authHeader.substring(0, 20)}...` 
         : authHeader;
@@ -24,16 +26,35 @@ export function middleware(request: NextRequest) {
     }
   }
   
+  // Priority 2: If no Authorization header, try to get from cookie (from previous request)
+  if (!authHeader) {
+    const authHeaderFromCookie = request.cookies.get('auth_token')?.value;
+    if (authHeaderFromCookie) {
+      authHeader = authHeaderFromCookie;
+      if (shouldLog) {
+        const maskedHeader = authHeaderFromCookie.length > 20 
+          ? `${authHeaderFromCookie.substring(0, 20)}...` 
+          : authHeaderFromCookie;
+        console.log('[Middleware] Authorization header from cookie:', maskedHeader);
+      }
+    } else {
+      if (shouldLog) {
+        console.log('[Middleware] No Authorization header in cookie');
+      }
+    }
+  }
+  
   // Create response
   const response = NextResponse.next();
   
+  // If we have Authorization header (from request or cookie)
   if (authHeader) {
-    // Store Authorization header AS-IS in httpOnly cookie (for fallback)
+    // Store Authorization header AS-IS in httpOnly cookie (for future requests)
     if (shouldLog) {
       const maskedHeader = authHeader.length > 20 
         ? `${authHeader.substring(0, 20)}...` 
         : authHeader;
-      console.log('[Middleware] Authorization header stored in cookie (as-is):', maskedHeader);
+      console.log('[Middleware] Storing Authorization header in cookie (as-is):', maskedHeader);
     }
     
     // Set Authorization header AS-IS in httpOnly cookie
@@ -45,13 +66,20 @@ export function middleware(request: NextRequest) {
       path: '/',
     });
     
-    // CRITICAL: Forward Authorization header directly to API routes
-    // This ensures the header is available even if cookies don't work
+    // CRITICAL: Forward Authorization header to API routes via custom header
+    // Next.js middleware cannot modify request headers, so we use a custom header
+    // that the API route can read
     if (request.nextUrl.pathname.startsWith('/api/')) {
-      response.headers.set('authorization', authHeader);
+      // Set custom header that API route can read
+      response.headers.set('x-auth-token', authHeader);
+      
       if (shouldLog) {
-        console.log('[Middleware] Authorization header forwarded to API route:', request.nextUrl.pathname);
+        console.log('[Middleware] ✅ Authorization header forwarded to API route via x-auth-token header:', request.nextUrl.pathname);
       }
+    }
+  } else {
+    if (shouldLog && request.nextUrl.pathname.startsWith('/api/')) {
+      console.log('[Middleware] ⚠️ No Authorization header available for API route:', request.nextUrl.pathname);
     }
   }
 
