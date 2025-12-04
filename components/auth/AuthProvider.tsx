@@ -7,8 +7,11 @@ import { setupPostMessageListener, getAuthToken, setAuthToken } from '@/lib/auth
  * AuthProvider component to handle authentication in WebView context
  * Sets up postMessage listener and extracts token from URL
  * 
- * Note: Authorization header from Android WebView is handled by middleware.ts
- * which automatically stores it in httpOnly cookie
+ * Strategy:
+ * 1. Middleware captures Authorization header and stores in cookie (server-side fallback)
+ * 2. Client-side fetches token from API endpoint that reads cookie
+ * 3. Client-side stores token in sessionStorage for subsequent API calls
+ * 4. Client-side sends Authorization header directly via fetch API
  */
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -22,21 +25,46 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     // Setup postMessage listener for Android WebView
     setupPostMessageListener();
 
-    // Extract token from URL if present (Android WebView can pass via URL)
-    // This is a fallback method if header is not available
+    // Priority 1: Extract token from URL if present (Android WebView can pass via URL)
     const tokenFromUrl = getAuthToken();
     
-    // If token from URL, store it in sessionStorage for client-side use
     if (tokenFromUrl) {
       if (shouldLog) {
-        console.log('[AuthProvider] Token found and stored in sessionStorage');
+        console.log('[AuthProvider] Token found in URL and stored in sessionStorage');
       }
-      setAuthToken(tokenFromUrl);
-    } else {
-      if (shouldLog) {
-        console.log('[AuthProvider] No token found in URL or sessionStorage');
-      }
+      // Token already stored by getAuthToken()
+      return;
     }
+
+    // Priority 2: Fetch token from server (middleware stored it in cookie)
+    // This handles the case where Authorization header was sent but cookie didn't work
+    const fetchTokenFromServer = async () => {
+      try {
+        const response = await fetch('/api/auth/get-token', {
+          method: 'GET',
+          credentials: 'include', // Important: include cookies
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.token) {
+            setAuthToken(data.token);
+            if (shouldLog) {
+              const maskedToken = data.token.length > 20 
+                ? `${data.token.substring(0, 20)}...` 
+                : data.token;
+              console.log('[AuthProvider] Token fetched from server and stored:', maskedToken);
+            }
+          }
+        }
+      } catch (error) {
+        if (shouldLog) {
+          console.log('[AuthProvider] Could not fetch token from server:', error);
+        }
+      }
+    };
+
+    fetchTokenFromServer();
   }, []);
 
   return <>{children}</>;

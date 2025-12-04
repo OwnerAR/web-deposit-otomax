@@ -36,12 +36,22 @@ export const apiClient = {
     };
 
     // Add Authorization header if token is available
-    // Note: In WebView, the Authorization header should be set by Android app
-    // This is a fallback for token passed via URL/postMessage
+    // IMPORTANT: Send token AS-IS (don't add "Bearer" prefix if it's already there)
+    // Middleware stores the exact format received from Android WebView
     if (authToken) {
-      headers['Authorization'] = `Bearer ${authToken}`;
-      if (shouldLog) {
-        console.log('[API Client] Authorization header added to request');
+      // Check if token already has "Bearer " prefix or is in format "ENC Key=..."
+      // If it starts with "Bearer " or "ENC", send as-is
+      // Otherwise, assume it's a plain token and add "Bearer " prefix
+      if (authToken.startsWith('Bearer ') || authToken.startsWith('ENC')) {
+        headers['Authorization'] = authToken;
+        if (shouldLog) {
+          console.log('[API Client] Authorization header added (as-is, no Bearer prefix added)');
+        }
+      } else {
+        headers['Authorization'] = `Bearer ${authToken}`;
+        if (shouldLog) {
+          console.log('[API Client] Authorization header added (with Bearer prefix)');
+        }
       }
     } else {
       if (shouldLog) {

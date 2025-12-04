@@ -13,35 +13,21 @@ export async function POST(request: NextRequest) {
       console.log('[API /deposit/create] All request headers:', Object.fromEntries(request.headers.entries()));
     }
     
-    // Priority 1: Get Authorization header from custom header (forwarded by middleware)
-    // Middleware sets x-auth-token header when forwarding to API routes
-    let authHeader = request.headers.get('x-auth-token');
+    // Priority 1: Get Authorization header from request (sent by client-side fetch)
+    // This is the PRIMARY method - client-side sends Authorization header directly
+    let authHeader = request.headers.get('authorization');
     
     if (shouldLog) {
-      console.log('[API /deposit/create] x-auth-token header from middleware:', authHeader ? '✅ Present' : '❌ Not present');
+      console.log('[API /deposit/create] Authorization header from request (client-side):', authHeader ? '✅ Present' : '❌ Not present');
       if (authHeader) {
         const maskedHeader = authHeader.length > 30 
           ? `${authHeader.substring(0, 30)}...` 
           : authHeader;
-        console.log('[API /deposit/create] x-auth-token value:', maskedHeader);
+        console.log('[API /deposit/create] Authorization header value:', maskedHeader);
       }
     }
     
-    // Priority 2: Get Authorization header from request (if sent directly)
-    if (!authHeader) {
-      authHeader = request.headers.get('authorization');
-      if (shouldLog) {
-        console.log('[API /deposit/create] Authorization header from request:', authHeader ? '✅ Present' : '❌ Not present');
-        if (authHeader) {
-          const maskedHeader = authHeader.length > 30 
-            ? `${authHeader.substring(0, 30)}...` 
-            : authHeader;
-          console.log('[API /deposit/create] Authorization header value:', maskedHeader);
-        }
-      }
-    }
-    
-    // Priority 3: Get Authorization header from cookie (stored by middleware AS-IS)
+    // Priority 2: Get Authorization header from cookie (stored by middleware - fallback)
     if (!authHeader) {
       const allCookies = request.cookies.getAll();
       if (shouldLog) {
@@ -56,7 +42,7 @@ export async function POST(request: NextRequest) {
           const maskedHeader = authHeaderFromCookie.length > 30 
             ? `${authHeaderFromCookie.substring(0, 30)}...` 
             : authHeaderFromCookie;
-          console.log('[API /deposit/create] Authorization header from cookie (as-is):', maskedHeader);
+          console.log('[API /deposit/create] Authorization header from cookie (fallback, as-is):', maskedHeader);
         }
       } else {
         if (shouldLog) {
