@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 
 /**
  * Middleware to capture Authorization header from Android WebView
- * and redirect with token in query parameter
+ * and inject token to URL query parameter without redirect
  * 
  * Strategy: Token hanya dari URL query parameter (ONLY SOURCE)
  * - Middleware menangkap Authorization header dari Android WebView
- * - Redirect ke URL yang sama dengan token di query parameter: ?authToken="ENC Key=..."
+ * - Set cookie dengan token untuk temporary storage
+ * - Client-side script akan inject token ke URL query parameter tanpa reload
  * - Frontend membaca token dari query parameter saja
  */
 export function middleware(request: NextRequest) {
@@ -38,40 +39,34 @@ export function middleware(request: NextRequest) {
     }
   }
   
-  // SOLUSI: Jika ada Authorization header dan belum ada token di query parameter, redirect dengan query parameter
-  // Ini memastikan token langsung tersedia di URL sebagai query parameter (ONLY SOURCE)
-  // Hanya redirect untuk non-API routes
+  // Create response
+  const response = NextResponse.next();
+  
+  // SOLUSI: Jika ada Authorization header dan belum ada token di query parameter
+  // Set cookie dengan token untuk client-side script inject ke URL query parameter
+  // Hanya untuk non-API routes
   if (authHeader && !hasTokenParam && !request.nextUrl.pathname.startsWith('/api/')) {
-    // Preserve pathname dan search params yang sudah ada
-    const redirectUrl = new URL(request.url);
-    redirectUrl.pathname = request.nextUrl.pathname; // Preserve path
-    redirectUrl.search = request.nextUrl.search; // Preserve existing query params
-    
-    // Set token dengan format: ?authToken="ENC Key=..."
-    // searchParams.set() akan otomatis URL-encode
+    // Set cookie dengan token (temporary storage untuk client-side inject)
     const tokenWithQuotes = `"${authHeader}"`;
-    redirectUrl.searchParams.set('authToken', tokenWithQuotes);
+    response.cookies.set('_auth_token_temp', tokenWithQuotes, {
+      httpOnly: false, // Allow client-side access
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60, // 60 seconds - cukup untuk inject ke URL
+      path: '/',
+    });
     
     if (shouldLog) {
       const maskedHeader = authHeader.length > 20 
         ? `${authHeader.substring(0, 20)}...` 
         : authHeader;
-      console.log('[Middleware] 🔄 Redirecting to URL with token query parameter:', {
-        from: request.url,
-        to: redirectUrl.toString(),
-        pathname: redirectUrl.pathname,
+      console.log('[Middleware] ✅ Set cookie with token (will be injected to URL by client-side script):', {
+        pathname: request.nextUrl.pathname,
         tokenPreview: maskedHeader,
       });
     }
-    
-    // Redirect ke URL yang sama dengan query parameter token
-    // Use 307 (Temporary Redirect) to preserve method and body
-    return NextResponse.redirect(redirectUrl, { status: 307 });
   }
   
-  // Create response (untuk API routes atau jika token sudah ada di query parameter)
-  const response = NextResponse.next();
-
   return response;
 }
 
