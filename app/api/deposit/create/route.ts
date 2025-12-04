@@ -54,32 +54,53 @@ export async function POST(request: NextRequest) {
     // Get request body
     const body: CreateDepositRequest = await request.json();
 
-    // Final Authorization header to send to backend
-    const finalAuthHeader = authHeader;
+    // Extract token from body (injected by client-side)
+    // Priority: body.auth_token > Authorization header > cookie
+    let finalAuthToken = body.auth_token;
+    
+    if (!finalAuthToken && authHeader) {
+      // Fallback to Authorization header if not in body
+      finalAuthToken = authHeader;
+    }
+    
     if (shouldLog) {
-      console.log('[API /deposit/create] Final Authorization header to backend:', finalAuthHeader ? '✅ Will be sent' : '❌ Not sending');
-      if (finalAuthHeader) {
-        const maskedHeader = finalAuthHeader.length > 30 
-          ? `${finalAuthHeader.substring(0, 30)}...` 
-          : finalAuthHeader;
-        console.log('[API /deposit/create] Final Authorization header value:', maskedHeader);
+      console.log('[API /deposit/create] Token from body:', body.auth_token ? '✅ Present' : '❌ Not present');
+      console.log('[API /deposit/create] Token from header:', authHeader ? '✅ Present' : '❌ Not present');
+      console.log('[API /deposit/create] Final token to backend:', finalAuthToken ? '✅ Will be sent' : '❌ Not sending');
+      if (finalAuthToken) {
+        const maskedToken = finalAuthToken.length > 30 
+          ? `${finalAuthToken.substring(0, 30)}...` 
+          : finalAuthToken;
+        console.log('[API /deposit/create] Final token value:', maskedToken);
       }
-      console.log('[API /deposit/create] Request body:', {
+      console.log('[API /deposit/create] Request body (before forwarding):', {
         amount: body.amount,
         payment_method: body.payment_method,
         phone_number: body.phone_number ? '***' : undefined,
+        auth_token: body.auth_token ? '*** (will be forwarded)' : undefined,
       });
     }
 
-    // Forward request to backend API with Authorization header
+    // Prepare body for backend - keep auth_token in body
+    // Remove auth_token from body if we're using Authorization header instead
+    const backendBody: any = {
+      amount: body.amount,
+      payment_method: body.payment_method,
+      ...(body.phone_number && { phone_number: body.phone_number }),
+      // Keep auth_token in body if present (backend expects it in body)
+      ...(finalAuthToken && { auth_token: finalAuthToken }),
+    };
+
+    // Forward request to backend API
+    // Token is sent in body, not in Authorization header
     const response = await fetch(`${API_BASE_URL}/api/deposit/create`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // Forward Authorization header if present
-        ...(finalAuthHeader && { Authorization: finalAuthHeader }),
+        // Also send Authorization header as fallback (if backend supports both)
+        ...(finalAuthToken && !body.auth_token && { Authorization: finalAuthToken }),
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(backendBody),
     });
 
     if (!response.ok) {

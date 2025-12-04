@@ -24,53 +24,39 @@ export const apiClient = {
           : authToken;
         console.log('[API Client] Auth token value:', maskedToken);
       }
-      console.log('[API Client] Request data:', {
+      console.log('[API Client] Request data (before token injection):', {
         amount: data.amount,
         payment_method: data.payment_method,
         phone_number: data.phone_number ? '***' : undefined,
       });
     }
     
+    // Prepare request body - inject token into body (not in header)
+    // Token is injected automatically, not shown in form
+    const requestBody: CreateDepositRequest = {
+      ...data,
+      // Inject token into body if available
+      ...(authToken && { auth_token: authToken }),
+    };
+    
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
 
-    // Add Authorization header if token is available
-    // IMPORTANT: Send token AS-IS (don't add "Bearer" prefix if it's already there)
-    // Middleware stores the exact format received from Android WebView
-    if (authToken) {
-      // Check if token already has "Bearer " prefix or is in format "ENC Key=..."
-      // If it starts with "Bearer " or "ENC", send as-is
-      // Otherwise, assume it's a plain token and add "Bearer " prefix
-      if (authToken.startsWith('Bearer ') || authToken.startsWith('ENC')) {
-        headers['Authorization'] = authToken;
-        if (shouldLog) {
-          console.log('[API Client] Authorization header added (as-is, no Bearer prefix added)');
-        }
-      } else {
-        headers['Authorization'] = `Bearer ${authToken}`;
-        if (shouldLog) {
-          console.log('[API Client] Authorization header added (with Bearer prefix)');
-        }
-      }
-    } else {
-      if (shouldLog) {
-        console.log('[API Client] No Authorization header added (no token available)');
-      }
-    }
-
     if (shouldLog) {
       console.log('[API Client] Sending request to:', API_ROUTE);
-      console.log('[API Client] Request headers:', {
-        'Content-Type': headers['Content-Type'],
-        'Authorization': headers['Authorization'] ? 'Bearer ***' : undefined,
+      console.log('[API Client] Request body (token injected):', {
+        amount: requestBody.amount,
+        payment_method: requestBody.payment_method,
+        phone_number: requestBody.phone_number ? '***' : undefined,
+        auth_token: requestBody.auth_token ? '*** (injected)' : undefined,
       });
     }
 
     const response = await fetch(API_ROUTE, {
       method: 'POST',
       headers,
-      body: JSON.stringify(data),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
