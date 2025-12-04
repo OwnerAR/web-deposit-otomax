@@ -5,12 +5,13 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 export async function POST(request: NextRequest) {
   try {
-    const isDev = process.env.NODE_ENV !== 'production';
+    // Logging (can be enabled via ENABLE_AUTH_LOGGING env var, or auto-enabled in development)
+    const shouldLog = process.env.ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
     
     // Priority 1: Get Authorization header from current request (if sent directly)
     let authHeader = request.headers.get('authorization');
     
-    if (isDev) {
+    if (shouldLog) {
       console.log('[API /deposit/create] Authorization header from request:', authHeader ? '✅ Present' : '❌ Not present');
       if (authHeader) {
         const maskedHeader = authHeader.length > 30 
@@ -25,14 +26,14 @@ export async function POST(request: NextRequest) {
       const tokenFromCookie = request.cookies.get('auth_token')?.value;
       if (tokenFromCookie) {
         authHeader = `Bearer ${tokenFromCookie}`;
-        if (isDev) {
+        if (shouldLog) {
           const maskedToken = tokenFromCookie.length > 20 
             ? `${tokenFromCookie.substring(0, 20)}...` 
             : tokenFromCookie;
           console.log('[API /deposit/create] Token from cookie:', maskedToken);
         }
       } else {
-        if (isDev) {
+        if (shouldLog) {
           console.log('[API /deposit/create] No token found in cookie');
         }
       }
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     // Final Authorization header to send to backend
     const finalAuthHeader = authHeader;
-    if (isDev) {
+    if (shouldLog) {
       console.log('[API /deposit/create] Final Authorization header to backend:', finalAuthHeader ? '✅ Will be sent' : '❌ Not sending');
       if (finalAuthHeader) {
         const maskedHeader = finalAuthHeader.length > 30 

@@ -12,9 +12,10 @@ import { setupPostMessageListener, getAuthToken, setAuthToken } from '@/lib/auth
  */
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    const isDev = process.env.NODE_ENV !== 'production';
+    // Logging (can be enabled via ENABLE_AUTH_LOGGING env var, or auto-enabled in development)
+    const shouldLog = process.env.NEXT_PUBLIC_ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
     
-    if (isDev) {
+    if (shouldLog) {
       console.log('[AuthProvider] Initializing auth provider...');
     }
     
@@ -27,12 +28,12 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     
     // If token from URL, store it in sessionStorage for client-side use
     if (tokenFromUrl) {
-      if (isDev) {
+      if (shouldLog) {
         console.log('[AuthProvider] Token found and stored in sessionStorage');
       }
       setAuthToken(tokenFromUrl);
     } else {
-      if (isDev) {
+      if (shouldLog) {
         console.log('[AuthProvider] No token found in URL or sessionStorage');
       }
     }

@@ -9,12 +9,13 @@ const FEES_ROUTE = '/api/deposit/fees';
 
 export const apiClient = {
   async createDeposit(data: CreateDepositRequest): Promise<CreateDepositResponse> {
-    const isDev = process.env.NODE_ENV !== 'production';
+    // Logging (can be enabled via ENABLE_AUTH_LOGGING env var, or auto-enabled in development)
+    const shouldLog = process.env.NEXT_PUBLIC_ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
     
     // Get auth token (from URL param, sessionStorage, or postMessage)
     const authToken = getAuthToken();
     
-    if (isDev) {
+    if (shouldLog) {
       console.log('[API Client] Creating deposit request...');
       console.log('[API Client] Auth token available:', authToken ? '✅ Yes' : '❌ No');
       if (authToken) {
@@ -39,16 +40,16 @@ export const apiClient = {
     // This is a fallback for token passed via URL/postMessage
     if (authToken) {
       headers['Authorization'] = `Bearer ${authToken}`;
-      if (isDev) {
+      if (shouldLog) {
         console.log('[API Client] Authorization header added to request');
       }
     } else {
-      if (isDev) {
+      if (shouldLog) {
         console.log('[API Client] No Authorization header added (no token available)');
       }
     }
 
-    if (isDev) {
+    if (shouldLog) {
       console.log('[API Client] Sending request to:', API_ROUTE);
       console.log('[API Client] Request headers:', {
         'Content-Type': headers['Content-Type'],

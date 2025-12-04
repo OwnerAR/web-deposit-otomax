@@ -11,8 +11,8 @@ const AUTH_TOKEN_KEY = 'auth_token';
  * 3. postMessage from Android app (if available)
  */
 export function getAuthToken(): string | null {
-  // Development logging
-  const isDev = process.env.NODE_ENV !== 'production';
+  // Logging (can be enabled via ENABLE_AUTH_LOGGING env var, or auto-enabled in development)
+  const shouldLog = process.env.NEXT_PUBLIC_ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
   
   // 1. Check URL parameter (Android WebView can pass token via URL)
   if (typeof window !== 'undefined') {
@@ -21,7 +21,7 @@ export function getAuthToken(): string | null {
     if (tokenFromUrl) {
       // Store in sessionStorage for subsequent requests
       sessionStorage.setItem(AUTH_TOKEN_KEY, tokenFromUrl);
-      if (isDev) {
+      if (shouldLog) {
         const maskedToken = tokenFromUrl.length > 20 
           ? `${tokenFromUrl.substring(0, 20)}...` 
           : tokenFromUrl;
@@ -33,7 +33,7 @@ export function getAuthToken(): string | null {
     // 2. Check sessionStorage
     const tokenFromStorage = sessionStorage.getItem(AUTH_TOKEN_KEY);
     if (tokenFromStorage) {
-      if (isDev) {
+      if (shouldLog) {
         const maskedToken = tokenFromStorage.length > 20 
           ? `${tokenFromStorage.substring(0, 20)}...` 
           : tokenFromStorage;
@@ -45,7 +45,7 @@ export function getAuthToken(): string | null {
     // 3. Listen for postMessage from Android app (if needed)
     // This would be set up in a useEffect in the app
     
-    if (isDev) {
+    if (shouldLog) {
       console.log('[Auth] No token found in URL or sessionStorage');
     }
   }
@@ -78,11 +78,11 @@ export function clearAuthToken(): void {
 export function setupPostMessageListener(): void {
   if (typeof window === 'undefined') return;
 
-  const isDev = process.env.NODE_ENV !== 'production';
+  const shouldLog = process.env.NEXT_PUBLIC_ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
 
   window.addEventListener('message', (event) => {
-    // Development logging
-    if (isDev) {
+    // Logging
+    if (shouldLog) {
       console.log('[Auth] PostMessage received:', {
         origin: event.origin,
         type: event.data?.type,
@@ -97,7 +97,7 @@ export function setupPostMessageListener(): void {
     if (event.data && event.data.type === 'AUTH_TOKEN') {
       const token = event.data.token;
       if (token) {
-        if (isDev) {
+        if (shouldLog) {
           const maskedToken = token.length > 20 
             ? `${token.substring(0, 20)}...` 
             : token;

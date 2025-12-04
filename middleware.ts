@@ -10,12 +10,14 @@ export function middleware(request: NextRequest) {
   // Check if Authorization header is present (from Android WebView)
   const authHeader = request.headers.get('authorization');
   
-  // Development logging
-  if (process.env.NODE_ENV !== 'production') {
+  // Logging (can be enabled via ENABLE_AUTH_LOGGING env var, or auto-enabled in development)
+  const shouldLog = process.env.ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
+  
+  if (shouldLog) {
     console.log('[Middleware] Request URL:', request.url);
     console.log('[Middleware] Authorization header received:', authHeader ? '✅ Present' : '❌ Not present');
     if (authHeader) {
-      // Mask token for security (show first 10 chars only)
+      // Mask token for security (show first 20 chars only)
       const maskedToken = authHeader.length > 20 
         ? `${authHeader.substring(0, 20)}...` 
         : authHeader;
@@ -29,8 +31,8 @@ export function middleware(request: NextRequest) {
       ? authHeader.substring(7) 
       : authHeader;
     
-    // Development logging
-    if (process.env.NODE_ENV !== 'production') {
+    // Logging
+    if (shouldLog) {
       const maskedToken = token.length > 20 
         ? `${token.substring(0, 20)}...` 
         : token;
