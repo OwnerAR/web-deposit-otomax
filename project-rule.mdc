@@ -9,7 +9,7 @@ Frontend web application untuk melakukan deposit dengan berbagai metode pembayar
 - **Styling**: Tailwind CSS
 - **Form Handling**: React Hook Form + Zod (validation)
 - **HTTP Client**: Fetch API
-- **State Management**: React Context API (FeesContext, AuthProvider)
+- **State Management**: React Context API (FeesContext)
 - **UI Components**: Custom components dengan Tailwind CSS
 - **Icons**: Lucide React
 - **Toast Notifications**: react-hot-toast
@@ -19,7 +19,7 @@ Frontend web application untuk melakukan deposit dengan berbagai metode pembayar
 ```
 web-deposit/
 ├── app/                          # Next.js App Router
-│   ├── layout.tsx               # Root layout dengan AuthProvider & FeesProvider
+│   ├── layout.tsx               # Root layout dengan TokenInjector & FeesProvider
 │   ├── page.tsx                 # Home/Deposit page (ALL payment methods)
 │   ├── [paymentMethod]/         # Dynamic routes untuk payment methods
 │   │   ├── ewallet/page.tsx
@@ -32,8 +32,6 @@ web-deposit/
 │   │   ├── deposit/
 │   │   │   ├── create/route.ts  # Proxy untuk create deposit
 │   │   │   └── fees/route.ts    # Proxy untuk get fees
-│   │   └── auth/
-│   │       └── set-token/route.ts
 │   └── globals.css              # Global styles
 ├── components/
 │   ├── ui/                      # Reusable UI components
@@ -52,7 +50,7 @@ web-deposit/
 │   │   ├── Header.tsx
 │   │   └── Footer.tsx
 │   └── auth/
-│       └── AuthProvider.tsx     # Auth context untuk Android WebView
+│       └── TokenInjector.tsx    # Client component untuk inject token ke URL
 ├── contexts/
 │   └── FeesContext.tsx          # Context untuk fee configuration
 ├── hooks/
@@ -61,7 +59,6 @@ web-deposit/
 │   └── usePaymentMethods.ts     # Custom hook for payment methods
 ├── lib/
 │   ├── api.ts                   # API client configuration
-│   ├── auth.ts                  # Auth utilities (token management)
 │   ├── utils.ts                 # Utility functions
 │   ├── validation.ts            # Zod schemas
 │   ├── constants.ts             # Constants (payment methods, min/max amounts)
@@ -87,20 +84,17 @@ const FEES_ROUTE = '/api/deposit/fees';
 
 export const apiClient = {
   async createDeposit(data: CreateDepositRequest): Promise<CreateDepositResponse> {
-    const authToken = getAuthToken();
+    // Token sudah di-inject di DepositForm sebagai auth_token di body
+    // Tidak perlu Authorization header, token sudah di body
     
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
 
-    if (authToken) {
-      headers['Authorization'] = `Bearer ${authToken}`;
-    }
-
     const response = await fetch(API_ROUTE, {
       method: 'POST',
       headers,
-      body: JSON.stringify(data),
+      body: JSON.stringify(data), // data sudah include auth_token jika ada
     });
 
     if (!response.ok) {
@@ -136,8 +130,8 @@ export const apiClient = {
 ### Next.js API Routes (Proxy)
 ```typescript
 // app/api/deposit/create/route.ts
-// Proxies request ke backend dengan Authorization header
-// Mendapatkan token dari cookie (set oleh middleware) atau request header
+// Proxies request ke backend dengan auth_token di request body
+// Membaca auth_token dari request body (ONLY SOURCE)
 
 // app/api/deposit/fees/route.ts
 // Mengambil fee configuration dari environment variables
@@ -153,6 +147,7 @@ export interface CreateDepositRequest {
   amount: number;
   phone_number?: string;
   payment_method: PaymentMethod;
+  auth_token?: string; // Token di-inject dari URL query parameter
 }
 
 export interface CreateDepositResponse {
@@ -183,27 +178,40 @@ export interface FeesResponse {
 ## Authentication Flow (Android WebView)
 
 ### Strategy
-1. **Initial Request**: Android WebView mengirim `Authorization` header pada initial request
-2. **Middleware**: Next.js middleware menangkap header dan menyimpan di httpOnly cookie
-3. **API Routes**: Next.js API routes membaca token dari cookie atau request header
-4. **PostMessage**: Alternatif, Android bisa mengirim token via `postMessage`
+1. **Initial Request**: Android WebView mengirim `Authorization` header pada initial request (format: `"ENC Key=..."`)
+2. **Middleware**: Next.js middleware menangkap header dan menyimpan di temporary cookie (`_auth_token_temp`) untuk < 60 detik
+3. **TokenInjector**: Client-side component membaca token dari cookie dan inject ke URL query parameter tanpa page reload
+4. **URL Query Parameter**: Token akhirnya hanya tersedia di URL query parameter (`?authToken="ENC Key=..."`)
+5. **DepositForm**: Membaca token dari URL query parameter dan inject ke request body sebagai `auth_token`
+6. **API Route**: Next.js API route membaca `auth_token` dari request body dan forward ke backend
+
+### Key Points
+- **NO REDIRECT**: Token di-inject ke URL tanpa reload untuk preserve query parameters
+- **Cookie Temporary**: Cookie hanya temporary storage (< 60 detik), dihapus setelah inject ke URL
+- **Final Source**: Token hanya dari URL query parameter (ONLY SOURCE)
+- **Token Injection**: Token di-inject ke request body, bukan header
 
 ### Implementation
 ```typescript
 // middleware.ts
-// Menangkap Authorization header dari initial request
-// Menyimpan token di httpOnly cookie untuk security
+// - Menangkap Authorization header dari Android WebView
+// - Set temporary cookie dengan token (maxAge: 60 seconds)
+// - Tidak melakukan redirect (no page reload)
 
-// lib/auth.ts
-// Utility functions untuk manage auth token:
-// - getAuthToken(): Get token dari URL param, sessionStorage, atau postMessage
-// - setAuthToken(): Set token ke sessionStorage
-// - clearAuthToken(): Clear token
-// - setupPostMessageListener(): Listen untuk postMessage dari Android
+// components/auth/TokenInjector.tsx
+// - Client-side component yang inject token dari cookie ke URL query parameter
+// - Menggunakan router.replace() untuk update URL tanpa reload
+// - Hapus cookie setelah inject ke URL
 
-// components/auth/AuthProvider.tsx
-// Client component yang setup postMessage listener
-// Wrapped di root layout
+// components/deposit/DepositForm.tsx
+// - Membaca token dari URL query parameter (authToken, token, atau auth_token)
+// - Decode URL encoding dan remove quotes
+// - Inject token ke request body sebagai auth_token field
+// - Redirect ke 404 jika token tidak ditemukan
+
+// app/api/deposit/create/route.ts
+// - Membaca auth_token dari request body (ONLY SOURCE)
+// - Forward ke backend API dengan auth_token di body
 ```
 
 ## Dynamic Routing for Payment Methods
@@ -473,6 +481,10 @@ FEE_VA_BANK=2500
 FEE_RETAIL=2500
 FEE_QRIS_PERCENTAGE=0.01
 FEE_EWALLET_PERCENTAGE=0.015
+
+# Debugging (optional)
+ENABLE_AUTH_LOGGING=false  # Set to 'true' to enable auth logging in production
+NEXT_PUBLIC_ENABLE_AUTH_LOGGING=false  # Set to 'true' to enable auth logging on client-side
 ```
 
 ## Best Practices
@@ -503,7 +515,7 @@ FEE_EWALLET_PERCENTAGE=0.015
 
 ### 4. State Management
 - ✅ React Hook Form untuk form state
-- ✅ React Context untuk global state (FeesContext, AuthProvider)
+- ✅ React Context untuk global state (FeesContext)
 - ✅ Caching untuk fees (avoid multiple API calls)
 - ✅ Minimize re-renders dengan proper memoization
 
@@ -519,7 +531,8 @@ FEE_EWALLET_PERCENTAGE=0.015
 - ✅ Validate all inputs di client dan server
 - ✅ Sanitize user inputs sebelum send ke API
 - ✅ Use environment variables untuk API URLs
-- ✅ httpOnly cookies untuk auth tokens
+- ✅ Temporary cookie untuk token transfer (auto-deleted setelah inject ke URL)
+- ✅ Token hanya di URL query parameter (final source)
 - ✅ Never expose API keys di client-side code
 - ✅ Secure token handling untuk Android WebView
 
@@ -613,4 +626,5 @@ FEE_EWALLET_PERCENTAGE=0.015
 - Consider adding dark mode support
 - Add loading skeletons untuk better perceived performance
 - Fees di-fetch sekali di app level (via FeesContext) untuk avoid redundant calls
-- Auth token handling support multiple methods: URL param, sessionStorage, postMessage, cookie
+- Auth token strategy: Cookie temporary → URL query parameter (ONLY SOURCE) → Request body
+- No redirect untuk preserve query parameters dan avoid losing token
