@@ -36,13 +36,56 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       return;
     }
 
-    // Priority 2: Fetch token from server (middleware stored it in cookie)
-    // This handles the case where Authorization header was sent but cookie didn't work
+    // Priority 2: Read token from multiple sources (server-side)
+    // Strategy: Try multiple methods since cookies might not work in WebView
     const fetchTokenFromServer = async () => {
+      // Method 1: Try to read from non-httpOnly cookie (if available)
+      const cookieToken = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('auth_token_client='))
+        ?.split('=')[1];
+      
+      if (cookieToken) {
+        setAuthToken(cookieToken);
+        if (shouldLog) {
+          const maskedToken = cookieToken.length > 20 
+            ? `${cookieToken.substring(0, 20)}...` 
+            : cookieToken;
+          console.log('[AuthProvider] Token read from non-httpOnly cookie:', maskedToken);
+        }
+        return;
+      }
+
+      // Method 2: Fetch current page to get x-auth-token header
+      try {
+        const pageResponse = await fetch(window.location.href, {
+          method: 'GET',
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        
+        const tokenFromHeader = pageResponse.headers.get('x-auth-token');
+        if (tokenFromHeader) {
+          setAuthToken(tokenFromHeader);
+          if (shouldLog) {
+            const maskedToken = tokenFromHeader.length > 20 
+              ? `${tokenFromHeader.substring(0, 20)}...` 
+              : tokenFromHeader;
+            console.log('[AuthProvider] Token read from response header (x-auth-token):', maskedToken);
+          }
+          return;
+        }
+      } catch (error) {
+        if (shouldLog) {
+          console.log('[AuthProvider] Could not fetch page to read header:', error);
+        }
+      }
+
+      // Method 3: Fetch from API endpoint (reads from httpOnly cookie)
       try {
         const response = await fetch('/api/auth/get-token', {
           method: 'GET',
-          credentials: 'include', // Important: include cookies
+          credentials: 'include',
         });
 
         if (response.ok) {
@@ -53,13 +96,13 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
               const maskedToken = data.token.length > 20 
                 ? `${data.token.substring(0, 20)}...` 
                 : data.token;
-              console.log('[AuthProvider] Token fetched from server and stored:', maskedToken);
+              console.log('[AuthProvider] Token fetched from API endpoint:', maskedToken);
             }
           }
         }
       } catch (error) {
         if (shouldLog) {
-          console.log('[AuthProvider] Could not fetch token from server:', error);
+          console.log('[AuthProvider] Could not fetch token from API endpoint:', error);
         }
       }
     };

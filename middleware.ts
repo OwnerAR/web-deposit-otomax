@@ -49,7 +49,7 @@ export function middleware(request: NextRequest) {
   
   // If we have Authorization header (from request or cookie)
   if (authHeader) {
-    // Store Authorization header AS-IS in httpOnly cookie (for future requests)
+    // Store Authorization header AS-IS in httpOnly cookie (for fallback)
     if (shouldLog) {
       const maskedHeader = authHeader.length > 20 
         ? `${authHeader.substring(0, 20)}...` 
@@ -57,7 +57,7 @@ export function middleware(request: NextRequest) {
       console.log('[Middleware] Storing Authorization header in cookie (as-is):', maskedHeader);
     }
     
-    // Set Authorization header AS-IS in httpOnly cookie
+    // Set Authorization header AS-IS in httpOnly cookie (for server-side fallback)
     response.cookies.set('auth_token', authHeader, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -66,15 +66,26 @@ export function middleware(request: NextRequest) {
       path: '/',
     });
     
-    // CRITICAL: Forward Authorization header to API routes via custom header
-    // Next.js middleware cannot modify request headers, so we use a custom header
-    // that the API route can read
-    if (request.nextUrl.pathname.startsWith('/api/')) {
-      // Set custom header that API route can read
+    // CRITICAL: Also set non-httpOnly cookie for client-side JavaScript access
+    // This allows client-side to read cookie directly if httpOnly cookie doesn't work
+    response.cookies.set('auth_token_client', authHeader, {
+      httpOnly: false, // Allow client-side JavaScript to read
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24, // 24 hours
+      path: '/',
+    });
+    
+    // CRITICAL: Expose token in response header for client-side to read
+    // This works even if cookies don't work in WebView
+    // Client-side can read this header and store in sessionStorage
+    if (!request.nextUrl.pathname.startsWith('/api/')) {
+      // Only expose to non-API routes (for security)
       response.headers.set('x-auth-token', authHeader);
       
       if (shouldLog) {
-        console.log('[Middleware] ✅ Authorization header forwarded to API route via x-auth-token header:', request.nextUrl.pathname);
+        console.log('[Middleware] ✅ Authorization header exposed in x-auth-token header for client-side');
+        console.log('[Middleware] ✅ Authorization header also stored in non-httpOnly cookie (auth_token_client)');
       }
     }
   } else {
