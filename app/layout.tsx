@@ -2,8 +2,9 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
-import AuthProvider from '@/components/auth/AuthProvider';
+import { AuthProvider } from '@/contexts/AuthContext';
 import { FeesProvider } from '@/contexts/FeesContext';
+import AuthProviderComponent from '@/components/auth/AuthProvider';
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -25,10 +26,12 @@ export default function RootLayout({
     <html lang="id">
       <body className={`${inter.variable} font-sans antialiased`}>
         <AuthProvider>
-          <FeesProvider>
-            {children}
-            <Toaster position="top-right" />
-          </FeesProvider>
+          <AuthProviderComponent>
+            <FeesProvider>
+              {children}
+              <Toaster position="top-right" />
+            </FeesProvider>
+          </AuthProviderComponent>
         </AuthProvider>
       </body>
     </html>

@@ -14,8 +14,9 @@ import PaymentSummary from './PaymentSummary';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { calculateFee } from '@/lib/utils';
-import { PaymentMethod } from '@/types/deposit';
+import { PaymentMethod, CreateDepositRequest } from '@/types/deposit';
 import { useFeesContext } from '@/contexts/FeesContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface DepositFormProps {
   defaultPaymentMethod?: PaymentMethod;
@@ -32,6 +33,9 @@ export default function DepositForm({
   
   // Get fee configuration from context (fetched once at app level)
   const { fees: feesConfig } = useFeesContext();
+  
+  // Get auth token from context (stored automatically, not shown in UI)
+  const { token: authToken, isLoading: isLoadingAuth } = useAuth();
 
   const {
     register,
@@ -65,11 +69,16 @@ export default function DepositForm({
   const onSubmit = async (data: DepositFormData) => {
     setIsLoading(true);
     try {
-      const response = await apiClient.createDeposit({
+      // Prepare request data with token injected in body (not shown in UI)
+      const requestData: CreateDepositRequest = {
         amount: data.amount,
         phone_number: data.phone_number || undefined,
         payment_method: data.payment_method,
-      });
+        // Inject token into body if available (automatically, not shown in form)
+        ...(authToken && { auth_token: authToken }),
+      };
+
+      const response = await apiClient.createDeposit(requestData);
 
       toast.success('Invoice berhasil dibuat!');
       
