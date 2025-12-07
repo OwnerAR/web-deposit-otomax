@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { decrypt, extractIdAgen } from '@/lib/decrypt';
 
 /**
  * Middleware to decode Authorization header from Android WebView
- * and redirect to /[idagen] page after successful decode
+ * and redirect to /[paymentMethod]/[idagen] page after successful decode
  * 
  * Strategy:
  * - Middleware menangkap Authorization header dari Android WebView
- * - Decode header menggunakan decrypt function
+ * - Call API route /api/auth/decode untuk decode (karena middleware menggunakan Edge Runtime)
  * - Extract idagen dari hasil decode
- * - Redirect ke /[idagen] page
+ * - Redirect ke /[paymentMethod]/[idagen] page
  */
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   // Logging (can be enabled via ENABLE_AUTH_LOGGING env var, or auto-enabled in development)
   const shouldLog = process.env.ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
   
@@ -93,50 +92,19 @@ export function middleware(request: NextRequest) {
     console.log('[Middleware] Extracted key and signature from header');
   }
   
-  // Get environment variable for private key
-  const privateKey = process.env.DECRYPT_PRIVATE_KEY;
-  
-  if (!privateKey) {
-    console.error('[Middleware] ❌ Missing DECRYPT_PRIVATE_KEY environment variable, redirecting to 404');
-    const notFoundUrl = new URL('/not-found', request.url);
-    return NextResponse.redirect(notFoundUrl);
-  }
-  
-  // Decrypt the signature using key as authkey
+  // Redirect to API route for decoding (because middleware uses Edge Runtime which doesn't support Node.js crypto)
+  // The API route will handle decryption and redirect to the final destination
   if (shouldLog) {
-    console.log('[Middleware] Attempting to decode signature...');
+    console.log('[Middleware] Redirecting to /api/auth/decode for decryption...');
   }
   
-  const decryptedData = decrypt(signature, privateKey, key);
+  // Build decode URL with query parameters
+  const decodeUrl = new URL('/api/auth/decode', request.url);
+  decodeUrl.searchParams.set('key', key);
+  decodeUrl.searchParams.set('signature', signature);
+  decodeUrl.searchParams.set('paymentMethod', firstSegment);
   
-  if (!decryptedData) {
-    if (shouldLog) {
-      console.log('[Middleware] ❌ Decryption failed, redirecting to 404');
-    }
-    const notFoundUrl = new URL('/not-found', request.url);
-    return NextResponse.redirect(notFoundUrl);
-  }
-  
-  // Extract idagen from decrypted JSON data
-  const idagen = extractIdAgen(decryptedData);
-  
-  if (!idagen) {
-    if (shouldLog) {
-      console.log('[Middleware] ❌ Failed to extract idagen from decrypted data, redirecting to 404');
-      console.log('[Middleware] Decrypted data:', decryptedData);
-    }
-    const notFoundUrl = new URL('/not-found', request.url);
-    return NextResponse.redirect(notFoundUrl);
-  }
-  
-  if (shouldLog) {
-    console.log('[Middleware] ✅ Successfully decoded, idagen:', idagen);
-    console.log('[Middleware] 🔄 Redirecting to /' + firstSegment + '/' + idagen);
-  }
-  
-  // Redirect to /[paymentMethod]/[idagen] page
-  const redirectUrl = new URL(`/${firstSegment}/${idagen}`, request.url);
-  return NextResponse.redirect(redirectUrl);
+  return NextResponse.redirect(decodeUrl);
 }
 
 // Only run middleware on specific paths

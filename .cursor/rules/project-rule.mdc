@@ -28,7 +28,29 @@ web-deposit/
 │   ├── page.tsx                 # Home/Deposit page
 │   ├── success/                 # Success page after payment
 │   │   └── page.tsx
-│   ├── api/                     # API routes (if needed)
+│   ├── not-found.tsx            # 404 page
+│   ├── vabank/                  # Virtual Account payment method
+│   │   ├── page.tsx            # Base page (redirects to /vabank/[idagen])
+│   │   └── [idagen]/
+│   │       └── page.tsx        # Deposit form for VA_BANK
+│   ├── ewallet/                 # E-Wallet payment method
+│   │   ├── page.tsx            # Base page (redirects to /ewallet/[idagen])
+│   │   └── [idagen]/
+│   │       └── page.tsx        # Deposit form for EWALLET
+│   ├── qris/                    # QRIS payment method
+│   │   ├── page.tsx            # Base page (redirects to /qris/[idagen])
+│   │   └── [idagen]/
+│   │       └── page.tsx        # Deposit form for QRIS
+│   ├── retail/                  # Retail Outlet payment method
+│   │   ├── page.tsx            # Base page (redirects to /retail/[idagen])
+│   │   └── [idagen]/
+│   │       └── page.tsx        # Deposit form for RETAIL
+│   ├── api/                     # API routes
+│   │   └── deposit/
+│   │       ├── create/
+│   │       │   └── route.ts   # Proxy to backend API
+│   │       └── fees/
+│   │           └── route.ts    # Get fee configuration
 │   └── globals.css              # Global styles
 ├── components/
 │   ├── ui/                      # Reusable UI components
@@ -51,19 +73,116 @@ web-deposit/
 │   ├── api.ts                   # API client configuration
 │   ├── utils.ts                 # Utility functions
 │   ├── validation.ts            # Zod schemas
-│   └── constants.ts             # Constants (payment methods, etc)
+│   ├── constants.ts             # Constants (payment methods, etc)
+│   ├── decrypt.ts               # Decryption utilities for Authorization header
+│   └── payment-routes.ts       # Payment route helpers
 ├── hooks/
 │   ├── useDeposit.ts            # Custom hook for deposit
 │   └── usePaymentMethods.ts     # Custom hook for payment methods
 ├── types/
 │   ├── deposit.ts               # TypeScript types
-│   └── api.ts                   # API response types
+│   ├── api.ts                   # API response types
+│   └── fees.ts                  # Fee configuration types
+├── contexts/
+│   └── FeesContext.tsx          # Context for fee configuration
 ├── public/
 │   └── images/                  # Static images
+├── middleware.ts                # Next.js middleware for auth handling
 ├── tailwind.config.ts
 ├── tsconfig.json
 ├── next.config.js
 └── package.json
+```
+
+## Authentication & Middleware
+
+### Middleware Flow
+Middleware menangani authentication dari Android WebView:
+
+1. **Android WebView** mengirim request ke path payment method (e.g., `/vabank`) dengan `Authorization` header
+2. **Middleware** (`middleware.ts`) menangkap request:
+   - Parse `Authorization` header format: `ENC Key="...", Signature="..."`
+   - Extract `key` dan `signature` dari header
+   - Decrypt `signature` menggunakan `decrypt()` function dengan `DECRYPT_PRIVATE_KEY`
+   - Extract `idagen` dari decrypted JSON data
+   - Redirect ke `/[paymentMethod]/[idagen]` (e.g., `/vabank/AGENT123`)
+3. Jika decode gagal atau `idagen` tidak ditemukan → redirect ke `/not-found`
+
+### Decryption Function
+```typescript
+// lib/decrypt.ts
+import crypto from 'crypto';
+import { sha3_512 } from 'js-sha3';
+
+/**
+ * Decrypt function equivalent to PHP decrypt function
+ * Handles AES-256-CBC decryption, HMAC-SHA3-512 verification, and RSA private decryption
+ */
+export function decrypt(
+  pesan: string,      // Base64 encoded encrypted message
+  privateKey: string, // Base64 encoded private key (contains IV, HMAC hash, encrypted data)
+  authKey: string     // Base64 encoded auth key
+): string | null;
+
+/**
+ * Extract idagen from decrypted JSON data
+ */
+export function extractIdAgen(decryptedData: string): string | null;
+```
+
+### Middleware Implementation
+```typescript
+// middleware.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { decrypt, extractIdAgen } from '@/lib/decrypt';
+
+export function middleware(request: NextRequest) {
+  // Skip non-payment method routes
+  const paymentMethodRoutes = ['vabank', 'ewallet', 'qris', 'retail'];
+  const pathSegments = request.nextUrl.pathname.split('/').filter(Boolean);
+  const firstSegment = pathSegments[0];
+  
+  // Only process payment method base routes (e.g., /vabank)
+  if (!paymentMethodRoutes.includes(firstSegment) || pathSegments.length > 1) {
+    return NextResponse.next();
+  }
+  
+  // Extract Authorization header
+  const authHeader = request.headers.get('authorization') || 
+                     request.headers.get('Authorization');
+  
+  if (!authHeader) {
+    return NextResponse.redirect(new URL('/not-found', request.url));
+  }
+  
+  // Parse header: ENC Key="...", Signature="..."
+  const match = authHeader.match(/ENC Key="([^"]+)",\s*Signature="([^"]+)"/);
+  if (!match) {
+    return NextResponse.redirect(new URL('/not-found', request.url));
+  }
+  
+  const key = match[1];
+  const signature = match[2];
+  const privateKey = process.env.DECRYPT_PRIVATE_KEY;
+  
+  if (!privateKey) {
+    return NextResponse.redirect(new URL('/not-found', request.url));
+  }
+  
+  // Decrypt and extract idagen
+  const decryptedData = decrypt(signature, privateKey, key);
+  if (!decryptedData) {
+    return NextResponse.redirect(new URL('/not-found', request.url));
+  }
+  
+  const idagen = extractIdAgen(decryptedData);
+  if (!idagen) {
+    return NextResponse.redirect(new URL('/not-found', request.url));
+  }
+  
+  // Redirect to /[paymentMethod]/[idagen]
+  return NextResponse.redirect(new URL(`/${firstSegment}/${idagen}`, request.url));
+}
 ```
 
 ## API Integration
@@ -96,12 +215,13 @@ export const apiClient = {
 ### TypeScript Types
 ```typescript
 // types/deposit.ts
-export type PaymentMethod = 'BANK' | 'RETAIL' | 'QRIS' | 'EWALLET' | 'ALL';
+export type PaymentMethod = 'VA_BANK' | 'RETAIL' | 'QRIS' | 'EWALLET' | 'ALL';
 
 export interface CreateDepositRequest {
   amount: number;
   phone_number?: string;
   payment_method: PaymentMethod;
+  idagen?: string; // Agent ID extracted from Authorization header
 }
 
 export interface PaymentMethodInfo {
@@ -160,7 +280,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { depositFormSchema, DepositFormData } from '@/lib/validation';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import AmountInput from './AmountInput';
 import PhoneInput from './PhoneInput';
@@ -168,50 +288,69 @@ import PaymentMethodSelect from './PaymentMethodSelect';
 import PaymentSummary from './PaymentSummary';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { calculateFee } from '@/lib/utils';
+import { PaymentMethod, CreateDepositRequest } from '@/types/deposit';
+import { useFeesContext } from '@/contexts/FeesContext';
 
-export default function DepositForm() {
+interface DepositFormProps {
+  defaultPaymentMethod?: PaymentMethod;
+  hidePaymentMethodSelect?: boolean;
+  idagen?: string; // Agent ID from URL path
+}
+
+function DepositFormContent({ 
+  defaultPaymentMethod = 'ALL',
+  hidePaymentMethodSelect = false,
+  idagen
+}: DepositFormProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [calculatedAmount, setCalculatedAmount] = useState<number | null>(null);
-
+  
+  const { fees: feesConfig } = useFeesContext();
+  
   const {
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<DepositFormData>({
     resolver: zodResolver(depositFormSchema),
     defaultValues: {
-      amount: 0,
+      amount: undefined as any,
       phone_number: '',
-      payment_method: 'VA_BANK',
+      payment_method: defaultPaymentMethod,
     },
   });
 
   const amount = watch('amount');
   const paymentMethod = watch('payment_method');
 
-  // Calculate total amount with fee
   useEffect(() => {
     if (amount > 0 && paymentMethod) {
-      // Calculate fee based on payment method
-      const fee = calculateFee(amount, paymentMethod);
+      const fee = calculateFee(amount, paymentMethod, feesConfig);
       setCalculatedAmount(amount + fee);
+    } else {
+      setCalculatedAmount(null);
     }
-  }, [amount, paymentMethod]);
+  }, [amount, paymentMethod, feesConfig]);
 
   const onSubmit = async (data: DepositFormData) => {
     setIsLoading(true);
+    
     try {
-      const response = await apiClient.createDeposit({
+      const requestData: CreateDepositRequest = {
         amount: data.amount,
         phone_number: data.phone_number || undefined,
         payment_method: data.payment_method,
-      });
+        ...(idagen && { idagen }),
+      };
+
+      const response = await apiClient.createDeposit(requestData);
 
       toast.success('Invoice berhasil dibuat!');
       
-      // Redirect to Xendit checkout or success page
       if (response.invoice_url) {
         window.location.href = response.invoice_url;
       } else {
@@ -225,10 +364,12 @@ export default function DepositForm() {
   };
 
   return (
-    <Card className="p-6">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+    <Card className="p-4 md:p-6 lg:p-8">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 md:space-y-6">
         <AmountInput
-          {...register('amount', { valueAsNumber: true })}
+          {...register('amount', { 
+            valueAsNumber: true,
+          })}
           error={errors.amount?.message}
         />
 
@@ -237,10 +378,21 @@ export default function DepositForm() {
           error={errors.phone_number?.message}
         />
 
-        <PaymentMethodSelect
-          {...register('payment_method')}
-          error={errors.payment_method?.message}
-        />
+        {!hidePaymentMethodSelect && (
+          <PaymentMethodSelect
+            value={paymentMethod}
+            onChange={(value) => setValue('payment_method', value as DepositFormData['payment_method'])}
+            error={errors.payment_method?.message}
+          />
+        )}
+        
+        {hidePaymentMethodSelect && (
+          <input
+            type="hidden"
+            {...register('payment_method')}
+            value={defaultPaymentMethod}
+          />
+        )}
 
         {calculatedAmount && (
           <PaymentSummary
@@ -260,6 +412,12 @@ export default function DepositForm() {
         </Button>
       </form>
     </Card>
+  );
+}
+
+export default function DepositForm(props: DepositFormProps) {
+  return (
+    <DepositFormContent {...props} />
   );
 }
 ```
@@ -563,6 +721,10 @@ export const MAX_AMOUNT = 100000000;
 # .env.local
 NEXT_PUBLIC_API_URL=http://localhost:8080
 NEXT_PUBLIC_APP_NAME=Xendit Deposit
+NEXT_PUBLIC_MIN_AMOUNT=10000
+NEXT_PUBLIC_MAX_AMOUNT=100000000
+DECRYPT_PRIVATE_KEY=base64_encoded_private_key_here
+ENABLE_AUTH_LOGGING=false  # Set to 'true' for debugging
 ```
 
 ## Dependencies (package.json)
@@ -581,7 +743,8 @@ NEXT_PUBLIC_APP_NAME=Xendit Deposit
     "lucide-react": "^0.294.0",
     "tailwindcss": "^3.3.0",
     "clsx": "^2.0.0",
-    "tailwind-merge": "^2.0.0"
+    "tailwind-merge": "^2.0.0",
+    "js-sha3": "^0.8.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -597,6 +760,67 @@ NEXT_PUBLIC_APP_NAME=Xendit Deposit
 ```
 
 ## Page Structure
+
+### Payment Method Pages
+Setiap payment method memiliki 2 routes:
+1. **Base route** (e.g., `/vabank/page.tsx`) - Dihandle oleh middleware untuk decode dan redirect
+2. **Dynamic route** (e.g., `/vabank/[idagen]/page.tsx`) - Menampilkan DepositForm dengan payment method yang sudah ditentukan
+
+### Payment Method Page Example
+```typescript
+// app/vabank/[idagen]/page.tsx
+import { notFound } from 'next/navigation';
+import DepositForm from '@/components/deposit/DepositForm';
+import Header from '@/components/layout/Header';
+import Footer from '@/components/layout/Footer';
+import { getPageTitle, getPageDescription } from '@/lib/payment-routes';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Deposit via Virtual Account',
+  description: 'Deposit saldo menggunakan Virtual Account BCA, BNI, BRI, MANDIRI, dan lainnya',
+};
+
+interface VABankPageProps {
+  params: {
+    idagen: string;
+  };
+}
+
+export default function VABankPage({ params }: VABankPageProps) {
+  // Validate idagen - redirect to 404 if not present
+  if (!params.idagen || params.idagen.trim() === '') {
+    notFound();
+  }
+
+  return (
+    <main className="min-h-screen bg-gray-50 flex flex-col">
+      <Header />
+      <div className="container mx-auto px-4 md:px-6 lg:px-8 py-6 md:py-8 lg:py-12 flex-1">
+        <div className="max-w-2xl mx-auto">
+          <div className="text-center mb-6 md:mb-8">
+            <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 mb-2 md:mb-3">
+              {getPageTitle('VA_BANK')}
+            </h1>
+            <p className="text-sm md:text-base text-gray-600 max-w-xl mx-auto">
+              {getPageDescription('VA_BANK')}
+            </p>
+            <p className="text-xs md:text-sm text-gray-500 mt-2">
+              Agent ID: {params.idagen}
+            </p>
+          </div>
+          <DepositForm 
+            defaultPaymentMethod="VA_BANK" 
+            hidePaymentMethodSelect={true}
+            idagen={params.idagen}
+          />
+        </div>
+      </div>
+      <Footer />
+    </main>
+  );
+}
+```
 
 ### Home/Deposit Page
 ```typescript
@@ -695,6 +919,23 @@ export default config;
 - Test error handling dan edge cases
 - Test responsive design di berbagai devices
 
+## Routing & Payment Methods
+
+### Available Routes
+- `/vabank/[idagen]` - Virtual Account payment method
+- `/ewallet/[idagen]` - E-Wallet payment method
+- `/qris/[idagen]` - QRIS payment method
+- `/retail/[idagen]` - Retail Outlet payment method
+
+### Flow
+1. Android WebView mengakses base route (e.g., `/vabank`) dengan `Authorization` header
+2. Middleware decode header dan extract `idagen`
+3. Redirect ke `/[paymentMethod]/[idagen]`
+4. Page menampilkan `DepositForm` dengan:
+   - `defaultPaymentMethod` sesuai route
+   - `hidePaymentMethodSelect={true}` (tidak bisa ganti metode)
+   - `idagen` dari URL params (dikirim ke backend)
+
 ## Notes
 - Gunakan Server Components sebanyak mungkin untuk better performance
 - Use Client Components hanya untuk interactive elements
@@ -703,3 +944,6 @@ export default config;
 - Implement SEO best practices
 - Consider adding dark mode support
 - Add loading skeletons untuk better perceived performance
+- Middleware hanya menangani payment method base routes (e.g., `/vabank`)
+- Routes dengan `idagen` sudah di-skip oleh middleware (tidak perlu decode ulang)
+- Jika decode gagal atau `idagen` tidak ditemukan → redirect ke `/not-found`
