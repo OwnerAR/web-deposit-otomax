@@ -12,39 +12,27 @@ export async function POST(request: NextRequest) {
       console.log('[API /deposit/create] ===== Request received =====');
     }
     
-    // Get request body - token hanya dari body.auth_token (injected by DepositForm)
+    // Get request body
     const body: CreateDepositRequest = await request.json();
     
-    // Extract token from body (ONLY SOURCE - injected by DepositForm from query parameter)
-    const authToken = body.auth_token;
-    
     if (shouldLog) {
-      console.log('[API /deposit/create] Token from body:', authToken ? '✅ Present' : '❌ Not present');
-      if (authToken) {
-        const maskedToken = authToken.length > 30 
-          ? `${authToken.substring(0, 30)}...` 
-          : authToken;
-        console.log('[API /deposit/create] Token value:', maskedToken);
-      }
       console.log('[API /deposit/create] Request body (before forwarding):', {
         amount: body.amount,
         payment_method: body.payment_method,
         phone_number: body.phone_number ? '***' : undefined,
-        auth_token: body.auth_token ? '*** (will be forwarded)' : undefined,
+        idagen: body.idagen || undefined,
       });
     }
 
-    // Prepare body for backend - token hanya dari body.auth_token
+    // Prepare body for backend - include idagen
     const backendBody: any = {
       amount: body.amount,
       payment_method: body.payment_method,
       ...(body.phone_number && { phone_number: body.phone_number }),
-      // Token hanya dari body.auth_token (injected by DepositForm)
-      ...(authToken && { auth_token: authToken }),
+      ...(body.idagen && { idagen: body.idagen }),
     };
 
     // Forward request to backend API
-    // Token is sent in body as auth_token
     const response = await fetch(`${API_BASE_URL}/api/deposit/create`, {
       method: 'POST',
       headers: {

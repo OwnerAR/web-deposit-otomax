@@ -4,8 +4,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { depositFormSchema, DepositFormData } from '@/lib/validation';
 import { apiClient } from '@/lib/api';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useState, useEffect, Suspense } from 'react';
+import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import AmountInput from './AmountInput';
 import PhoneInput from './PhoneInput';
@@ -20,14 +20,15 @@ import { useFeesContext } from '@/contexts/FeesContext';
 interface DepositFormProps {
   defaultPaymentMethod?: PaymentMethod;
   hidePaymentMethodSelect?: boolean;
+  idagen?: string; // Agent ID from URL path
 }
 
 function DepositFormContent({ 
   defaultPaymentMethod = 'ALL',
-  hidePaymentMethodSelect = false 
+  hidePaymentMethodSelect = false,
+  idagen
 }: DepositFormProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const [calculatedAmount, setCalculatedAmount] = useState<number | null>(null);
   
@@ -37,62 +38,6 @@ function DepositFormContent({
   // Logging for debugging
   const shouldLog = process.env.NEXT_PUBLIC_ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
   
-  // Don't check token on mount - TokenInjector will inject token from cookie to URL
-  // Only check token when form is submitted to avoid race condition
-  
-  // Helper function to extract and clean token from URL query parameter or cookie
-  const getTokenFromQuery = (): string | null => {
-    if (typeof window === 'undefined') return null;
-    
-    const urlParams = new URLSearchParams(window.location.search);
-    let tokenFromUrl = urlParams.get('authToken') || urlParams.get('token') || urlParams.get('auth_token');
-    
-    // Also try from Next.js searchParams
-    if (!tokenFromUrl) {
-      tokenFromUrl = searchParams.get('authToken') || searchParams.get('token') || searchParams.get('auth_token');
-    }
-    
-    // If no token in URL, try to get from cookie as fallback (TokenInjector might not have run yet)
-    if (!tokenFromUrl) {
-      const tokenCookie = document.cookie
-        .split('; ')
-        .find((row) => row.startsWith('_auth_token_temp='));
-      
-      if (tokenCookie) {
-        try {
-          tokenFromUrl = decodeURIComponent(tokenCookie.split('=')[1]);
-        } catch {
-          // Ignore decode error
-        }
-      }
-    }
-    
-    if (!tokenFromUrl) {
-      return null;
-    }
-    
-    // Decode URL encoding (handle multiple encodings)
-    let decodedToken = tokenFromUrl;
-    try {
-      let previousDecode = decodedToken;
-      for (let i = 0; i < 3; i++) {
-        const newDecode = decodeURIComponent(decodedToken);
-        if (newDecode === previousDecode) break;
-        decodedToken = newDecode;
-        previousDecode = decodedToken;
-      }
-    } catch {
-      decodedToken = tokenFromUrl;
-    }
-    
-    // Remove quotes jika ada (format: "ENC Key=...")
-    let cleanToken = decodedToken.trim();
-    if (cleanToken.startsWith('"') && cleanToken.endsWith('"')) {
-      cleanToken = cleanToken.slice(1, -1).trim();
-    }
-    
-    return cleanToken || null;
-  };
 
   const {
     register,
@@ -131,44 +76,23 @@ function DepositFormContent({
     }
     
     try {
-      // Get token langsung dari URL query parameter (token dipertahankan di URL sampai submit)
-      const token = getTokenFromQuery();
-      
-      // ALWAYS log untuk debugging (critical)
-      console.log('[DepositForm] ===== TOKEN RETRIEVAL (ON SUBMIT) =====');
-      console.log('[DepositForm] Current URL:', typeof window !== 'undefined' ? window.location.href : 'N/A');
-      console.log('[DepositForm] Token from query parameter:', token ? '✅ Yes' : '❌ No');
-      
-      // Jika tidak ada token, redirect ke 404
-      if (!token) {
-        console.error('[DepositForm] ❌❌❌ TOKEN IS NULL - Redirecting to 404 ❌❌❌');
-        router.replace('/not-found');
-        return;
-      }
-      
-      if (token) {
-        const maskedToken = token.length > 20 
-          ? `${token.substring(0, 20)}...` 
-          : token;
-        console.log('[DepositForm] Token value (masked):', maskedToken);
-        console.log('[DepositForm] Token length:', token.length);
-      }
-      
-      // Prepare request data with token injected in body (token dari URL query parameter)
+      // Prepare request data
       const requestData: CreateDepositRequest = {
         amount: data.amount,
         phone_number: data.phone_number || undefined,
         payment_method: data.payment_method,
-        // Inject token ke body dari query parameter
-        auth_token: token,
+        // Inject idagen from URL path if available
+        ...(idagen && { idagen }),
       };
 
-      // ALWAYS log request data (critical for debugging)
-      console.log('[DepositForm] ===== REQUEST DATA PREPARED =====');
-      console.log('[DepositForm] Amount:', requestData.amount);
-      console.log('[DepositForm] Payment method:', requestData.payment_method);
-      console.log('[DepositForm] Phone number:', requestData.phone_number ? '***' : undefined);
-      console.log('[DepositForm] Auth token in body:', requestData.auth_token ? '✅✅✅ INJECTED' : '❌❌❌ NOT INJECTED');
+      // Log request data for debugging
+      if (shouldLog) {
+        console.log('[DepositForm] ===== REQUEST DATA PREPARED =====');
+        console.log('[DepositForm] Amount:', requestData.amount);
+        console.log('[DepositForm] Payment method:', requestData.payment_method);
+        console.log('[DepositForm] Phone number:', requestData.phone_number ? '***' : undefined);
+        console.log('[DepositForm] Idagen:', requestData.idagen || '❌ Not present');
+      }
 
       const response = await apiClient.createDeposit(requestData);
 
@@ -239,12 +163,7 @@ function DepositFormContent({
   );
 }
 
-// Wrap with Suspense to handle useSearchParams (required for Next.js)
 export default function DepositForm(props: DepositFormProps) {
-  return (
-    <Suspense fallback={<div className="p-4 text-center">Loading...</div>}>
-      <DepositFormContent {...props} />
-    </Suspense>
-  );
+  return <DepositFormContent {...props} />;
 }
 

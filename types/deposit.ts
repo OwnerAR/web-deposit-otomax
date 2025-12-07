@@ -4,7 +4,7 @@ export interface CreateDepositRequest {
   amount: number;
   phone_number?: string;
   payment_method: PaymentMethod;
-  auth_token?: string; // Optional: Token injected automatically, not shown in form
+  idagen?: string; // Agent ID from URL path
 }
 
 export interface PaymentMethodInfo {

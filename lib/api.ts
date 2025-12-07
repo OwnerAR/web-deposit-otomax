@@ -17,12 +17,9 @@ export const apiClient = {
         amount: data.amount,
         payment_method: data.payment_method,
         phone_number: data.phone_number ? '***' : undefined,
-        auth_token: data.auth_token ? '*** (already injected in DepositForm)' : undefined,
+        idagen: data.idagen || undefined,
       });
     }
-    
-    // Token is already injected in DepositForm component
-    // Just send the data as-is (token is in body.auth_token)
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
@@ -33,7 +30,7 @@ export const apiClient = {
         amount: data.amount,
         payment_method: data.payment_method,
         phone_number: data.phone_number ? '***' : undefined,
-        auth_token: data.auth_token ? '*** (in body)' : '❌ Not present',
+        idagen: data.idagen || '❌ Not present',
       });
     }
 
