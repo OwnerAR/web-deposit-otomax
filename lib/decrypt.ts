@@ -7,18 +7,20 @@ import { sha3_512 } from 'js-sha3';
  * 
  * Note: SHA3-512 uses rate (not block size) for HMAC
  * Rate for SHA3-512 = 1088 bits = 136 bytes
- * But PHP might use block size = 72 bytes (576 bits)
+ * But PHP might use different block size
  */
 function hmacSha3512(data: Buffer, key: Buffer): Buffer {
-  // SHA3-512 rate = 1088 bits = 136 bytes
-  // But for HMAC compatibility, we'll use 72 bytes (576 bits) as block size
-  const blockSize = 72; // SHA3-512 block size for HMAC
-  const keyBuffer = key.length > blockSize ? Buffer.from(sha3_512.arrayBuffer(key)) : key;
-  const oKeyPad = Buffer.alloc(blockSize);
-  const iKeyPad = Buffer.alloc(blockSize);
+  // Try with rate size first (136 bytes)
+  const rateSize = 136; // SHA3-512 rate = 1088 bits = 136 bytes
+  const blockSize = 72; // Alternative block size
   
-  // Pad key to blockSize
-  for (let i = 0; i < blockSize; i++) {
+  // Try with rate size first
+  let keyBuffer = key.length > rateSize ? Buffer.from(sha3_512.arrayBuffer(key)) : key;
+  let oKeyPad = Buffer.alloc(rateSize);
+  let iKeyPad = Buffer.alloc(rateSize);
+  
+  // Pad key to rateSize
+  for (let i = 0; i < rateSize; i++) {
     if (i < keyBuffer.length) {
       oKeyPad[i] = keyBuffer[i] ^ 0x5c;
       iKeyPad[i] = keyBuffer[i] ^ 0x36;
@@ -32,6 +34,31 @@ function hmacSha3512(data: Buffer, key: Buffer): Buffer {
   const innerHash = sha3_512.arrayBuffer(Buffer.concat([iKeyPad, data]));
   
   // Outer hash: SHA3-512(oKeyPad || innerHash)
+  const outerHash = sha3_512.arrayBuffer(Buffer.concat([oKeyPad, Buffer.from(innerHash)]));
+  
+  return Buffer.from(outerHash);
+}
+
+/**
+ * Alternative HMAC-SHA3-512 with block size 72
+ */
+function hmacSha3512Block72(data: Buffer, key: Buffer): Buffer {
+  const blockSize = 72;
+  const keyBuffer = key.length > blockSize ? Buffer.from(sha3_512.arrayBuffer(key)) : key;
+  const oKeyPad = Buffer.alloc(blockSize);
+  const iKeyPad = Buffer.alloc(blockSize);
+  
+  for (let i = 0; i < blockSize; i++) {
+    if (i < keyBuffer.length) {
+      oKeyPad[i] = keyBuffer[i] ^ 0x5c;
+      iKeyPad[i] = keyBuffer[i] ^ 0x36;
+    } else {
+      oKeyPad[i] = 0x5c;
+      iKeyPad[i] = 0x36;
+    }
+  }
+  
+  const innerHash = sha3_512.arrayBuffer(Buffer.concat([iKeyPad, data]));
   const outerHash = sha3_512.arrayBuffer(Buffer.concat([oKeyPad, Buffer.from(innerHash)]));
   
   return Buffer.from(outerHash);
@@ -58,18 +85,27 @@ export function decrypt(
     const decodedAuthKey = Buffer.from(authKey, 'base64');
     
     // PHP: $decode64sha512 = base64_decode(hash('sha512', $decode64));
-    // This is confusing. Let's try both interpretations:
+    // This is confusing. Let's try different interpretations:
     // 
     // Interpretation 1: hash('sha512', $decode64, TRUE) returns binary directly
     // This is the most likely correct interpretation
-    const decodedAuthKeySha512 = crypto
+    let decodedAuthKeySha512 = crypto
       .createHash('sha512')
       .update(decodedAuthKey)
       .digest(); // Returns binary (64 bytes)
     
-    // Alternative: If PHP code really means base64_decode(hash('sha512', $decode64)):
-    // hash('sha512', $decode64) = hex string, then try to decode as base64
-    // This doesn't make sense, but let's keep it as fallback if needed
+    // Try alternative: If PHP code really means base64_decode(hash('sha512', $decode64)):
+    // hash('sha512', $decode64) = hex string (128 chars), then base64_decode it
+    // This doesn't make sense mathematically, but let's try it as fallback
+    // Actually, maybe it means: base64_encode(hash('sha512', $decode64, TRUE)) then decode?
+    // Or maybe: hash('sha512', base64_encode($decode64), TRUE)?
+    
+    // Let's try: hash('sha512', $decode64) produces hex, then we base64 encode it, then decode
+    // No wait, that's still weird
+    
+    // Most likely: The PHP code has a typo and should be:
+    // $decode64sha512 = hash('sha512', $decode64, TRUE); // binary directly
+    // So we'll use binary directly (already done above)
     
     const decodedPrivateKey = Buffer.from(privateKey, 'base64');
 
@@ -103,21 +139,61 @@ export function decrypt(
 
     // Step 4: Verify HMAC using SHA3-512
     // PHP: hash_hmac('sha3-512', $opensslenc, $decode64sha512, TRUE)
-    const hashHmacNew = hmacSha3512(opensslEnc, decodedAuthKeySha512);
+    // Try with rate size (136 bytes) first
+    let hashHmacNew = hmacSha3512(opensslEnc, decodedAuthKeySha512);
+    
+    // If that doesn't work, try with block size 72
+    let hashHmacNewAlt = hmacSha3512Block72(opensslEnc, decodedAuthKeySha512);
 
     if (shouldLog) {
       console.log('[Decrypt] Expected HMAC (first 16 bytes):', hashHmac.subarray(0, 16).toString('hex'));
       console.log('[Decrypt] Calculated HMAC (first 16 bytes):', hashHmacNew.subarray(0, 16).toString('hex'));
       console.log('[Decrypt] HMAC lengths match:', hashHmac.length === hashHmacNew.length);
+      console.log('[Decrypt] Key for HMAC (first 16 bytes):', decodedAuthKeySha512.subarray(0, 16).toString('hex'));
     }
 
+    // Try with block size 72 if rate size doesn't work
     if (!crypto.timingSafeEqual(hashHmac, hashHmacNew)) {
-      console.error('[Decrypt] HMAC verification failed');
       if (shouldLog) {
-        console.error('[Decrypt] Expected HMAC:', hashHmac.toString('hex'));
-        console.error('[Decrypt] Calculated HMAC:', hashHmacNew.toString('hex'));
+        console.log('[Decrypt] HMAC mismatch with rate size (136). Trying block size 72...');
       }
-      return null;
+      if (crypto.timingSafeEqual(hashHmac, hashHmacNewAlt)) {
+        if (shouldLog) {
+          console.log('[Decrypt] ✅ HMAC verified with block size 72');
+        }
+        hashHmacNew = hashHmacNewAlt;
+      } else {
+        // Try alternative methods
+        if (shouldLog) {
+          console.log('[Decrypt] HMAC mismatch. Trying alternative methods...');
+        }
+        
+        // Alternative 1: Use raw decodedAuthKey directly (without SHA512) with rate size
+        const hashHmacAlt1 = hmacSha3512(opensslEnc, decodedAuthKey);
+        const hashHmacAlt1b = hmacSha3512Block72(opensslEnc, decodedAuthKey);
+        
+        if (crypto.timingSafeEqual(hashHmac, hashHmacAlt1)) {
+          if (shouldLog) {
+            console.log('[Decrypt] ✅ HMAC verified with alternative method 1a (raw key, rate size)');
+          }
+          hashHmacNew = hashHmacAlt1;
+        } else if (crypto.timingSafeEqual(hashHmac, hashHmacAlt1b)) {
+          if (shouldLog) {
+            console.log('[Decrypt] ✅ HMAC verified with alternative method 1b (raw key, block 72)');
+          }
+          hashHmacNew = hashHmacAlt1b;
+        } else {
+          console.error('[Decrypt] HMAC verification failed with all methods');
+          if (shouldLog) {
+            console.error('[Decrypt] Expected HMAC:', hashHmac.toString('hex'));
+            console.error('[Decrypt] Calculated HMAC (SHA512 key, rate 136):', hashHmacNew.toString('hex'));
+            console.error('[Decrypt] Calculated HMAC (SHA512 key, block 72):', hashHmacNewAlt.toString('hex'));
+            console.error('[Decrypt] Calculated HMAC (raw key, rate 136):', hashHmacAlt1.toString('hex'));
+            console.error('[Decrypt] Calculated HMAC (raw key, block 72):', hashHmacAlt1b.toString('hex'));
+          }
+          return null;
+        }
+      }
     }
 
     // Step 5: RSA private decrypt with PKCS1 OAEP padding
