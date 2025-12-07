@@ -4,19 +4,34 @@ import { sha3_512 } from 'js-sha3';
 /**
  * HMAC-SHA3-512 implementation
  * Equivalent to PHP hash_hmac('sha3-512', data, key, true)
+ * 
+ * Note: SHA3-512 uses rate (not block size) for HMAC
+ * Rate for SHA3-512 = 1088 bits = 136 bytes
+ * But PHP might use block size = 72 bytes (576 bits)
  */
 function hmacSha3512(data: Buffer, key: Buffer): Buffer {
-  const blockSize = 72; // SHA3-512 block size
+  // SHA3-512 rate = 1088 bits = 136 bytes
+  // But for HMAC compatibility, we'll use 72 bytes (576 bits) as block size
+  const blockSize = 72; // SHA3-512 block size for HMAC
   const keyBuffer = key.length > blockSize ? Buffer.from(sha3_512.arrayBuffer(key)) : key;
   const oKeyPad = Buffer.alloc(blockSize);
   const iKeyPad = Buffer.alloc(blockSize);
   
+  // Pad key to blockSize
   for (let i = 0; i < blockSize; i++) {
-    oKeyPad[i] = keyBuffer[i] ? keyBuffer[i] ^ 0x5c : 0x5c;
-    iKeyPad[i] = keyBuffer[i] ? keyBuffer[i] ^ 0x36 : 0x36;
+    if (i < keyBuffer.length) {
+      oKeyPad[i] = keyBuffer[i] ^ 0x5c;
+      iKeyPad[i] = keyBuffer[i] ^ 0x36;
+    } else {
+      oKeyPad[i] = 0x5c;
+      iKeyPad[i] = 0x36;
+    }
   }
   
+  // Inner hash: SHA3-512(iKeyPad || data)
   const innerHash = sha3_512.arrayBuffer(Buffer.concat([iKeyPad, data]));
+  
+  // Outer hash: SHA3-512(oKeyPad || innerHash)
   const outerHash = sha3_512.arrayBuffer(Buffer.concat([oKeyPad, Buffer.from(innerHash)]));
   
   return Buffer.from(outerHash);
@@ -36,14 +51,33 @@ export function decrypt(
   authKey: string
 ): string | null {
   try {
+    const shouldLog = process.env.ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
+    
     // Step 1: Decode base64 messages
     const decodedPesan = Buffer.from(pesan, 'base64');
     const decodedAuthKey = Buffer.from(authKey, 'base64');
+    
+    // PHP: $decode64sha512 = base64_decode(hash('sha512', $decode64));
+    // This is confusing. Let's try both interpretations:
+    // 
+    // Interpretation 1: hash('sha512', $decode64, TRUE) returns binary directly
+    // This is the most likely correct interpretation
     const decodedAuthKeySha512 = crypto
       .createHash('sha512')
       .update(decodedAuthKey)
-      .digest();
+      .digest(); // Returns binary (64 bytes)
+    
+    // Alternative: If PHP code really means base64_decode(hash('sha512', $decode64)):
+    // hash('sha512', $decode64) = hex string, then try to decode as base64
+    // This doesn't make sense, but let's keep it as fallback if needed
+    
     const decodedPrivateKey = Buffer.from(privateKey, 'base64');
+
+    if (shouldLog) {
+      console.log('[Decrypt] Decoded auth key length:', decodedAuthKey.length);
+      console.log('[Decrypt] Decoded auth key SHA512 length:', decodedAuthKeySha512.length);
+      console.log('[Decrypt] Decoded private key length:', decodedPrivateKey.length);
+    }
 
     // Step 2: Extract IV, HMAC hash, and encrypted data from privateKey
     const method = 'aes-256-cbc';
@@ -52,17 +86,37 @@ export function decrypt(
     const hashHmac = decodedPrivateKey.subarray(ivLength, ivLength + 64);
     const opensslEnc = decodedPrivateKey.subarray(ivLength + 64);
 
+    if (shouldLog) {
+      console.log('[Decrypt] IV length:', iv.length);
+      console.log('[Decrypt] HMAC hash length:', hashHmac.length);
+      console.log('[Decrypt] Encrypted data length:', opensslEnc.length);
+    }
+
     // Step 3: Decrypt using AES-256-CBC
     const decipher = crypto.createDecipheriv(method, decodedAuthKey, iv);
     let decryptedData = decipher.update(opensslEnc);
     decryptedData = Buffer.concat([decryptedData, decipher.final()]);
 
+    if (shouldLog) {
+      console.log('[Decrypt] Decrypted data length:', decryptedData.length);
+    }
+
     // Step 4: Verify HMAC using SHA3-512
     // PHP: hash_hmac('sha3-512', $opensslenc, $decode64sha512, TRUE)
     const hashHmacNew = hmacSha3512(opensslEnc, decodedAuthKeySha512);
 
+    if (shouldLog) {
+      console.log('[Decrypt] Expected HMAC (first 16 bytes):', hashHmac.subarray(0, 16).toString('hex'));
+      console.log('[Decrypt] Calculated HMAC (first 16 bytes):', hashHmacNew.subarray(0, 16).toString('hex'));
+      console.log('[Decrypt] HMAC lengths match:', hashHmac.length === hashHmacNew.length);
+    }
+
     if (!crypto.timingSafeEqual(hashHmac, hashHmacNew)) {
       console.error('[Decrypt] HMAC verification failed');
+      if (shouldLog) {
+        console.error('[Decrypt] Expected HMAC:', hashHmac.toString('hex'));
+        console.error('[Decrypt] Calculated HMAC:', hashHmacNew.toString('hex'));
+      }
       return null;
     }
 
