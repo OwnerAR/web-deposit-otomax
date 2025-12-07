@@ -1,5 +1,4 @@
 import DepositForm from '@/components/deposit/DepositForm';
-import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import { getPageTitle, getPageDescription } from '@/lib/payment-routes';
 import type { Metadata } from 'next';
@@ -12,7 +11,6 @@ export const metadata: Metadata = {
 export default function Home() {
   return (
     <main className="min-h-screen bg-gray-50 flex flex-col">
-      <Header />
       <div className="container mx-auto px-4 md:px-6 lg:px-8 py-6 md:py-8 lg:py-12 flex-1">
         <div className="max-w-2xl mx-auto">
           <div className="text-center mb-6 md:mb-8">

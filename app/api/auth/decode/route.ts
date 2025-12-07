@@ -10,6 +10,10 @@ import { decrypt, extractIdAgen } from '@/lib/decrypt';
  * - signature: Signature dari Authorization header
  * - paymentMethod: Payment method route (vabank, ewallet, qris, retail)
  */
+
+// Force dynamic rendering because we use searchParams
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;

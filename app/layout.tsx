@@ -3,7 +3,6 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
 import { FeesProvider } from '@/contexts/FeesContext';
-import TokenInjector from '@/components/auth/TokenInjector';
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -24,7 +23,6 @@ export default function RootLayout({
   return (
     <html lang="id">
       <body className={`${inter.variable} font-sans antialiased`}>
-        <TokenInjector />
         <FeesProvider>
           {children}
           <Toaster position="top-right" />

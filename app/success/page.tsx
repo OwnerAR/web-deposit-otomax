@@ -5,7 +5,6 @@ import { useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle } from 'lucide-react';
-import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 
 function SuccessContent() {
@@ -40,7 +39,6 @@ function SuccessContent() {
 export default function SuccessPage() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Header />
       <div className="flex-1 flex items-center justify-center p-4 md:p-6 lg:p-8">
         <Suspense fallback={
           <Card className="p-6 md:p-8 lg:p-10 max-w-md w-full text-center">
