@@ -281,22 +281,42 @@ export function decrypt(
 
 /**
  * Extract idagen from decrypted JSON data
- * Decrypted data is JSON string containing idagen field
+ * Decrypted data is JSON string containing idagen or idmember field
  * 
  * @param decryptedData - Decrypted JSON data string
  * @returns idagen string or null
  */
 export function extractIdAgen(decryptedData: string): string | null {
   try {
+    const shouldLog = process.env.ENABLE_AUTH_LOGGING === 'true' || process.env.NODE_ENV !== 'production';
+    
     // Parse JSON data
     const parsed = JSON.parse(decryptedData);
     
-    // Extract idagen from parsed data
+    if (shouldLog) {
+      console.log('[ExtractIdAgen] Parsed data keys:', Object.keys(parsed));
+    }
+    
+    // Try idagen first (original field name)
     if (parsed.idagen) {
+      if (shouldLog) {
+        console.log('[ExtractIdAgen] Found idagen:', parsed.idagen);
+      }
       return String(parsed.idagen);
     }
     
-    // If idagen not found, return null
+    // Try idmember (alternative field name from PHP)
+    if (parsed.idmember) {
+      if (shouldLog) {
+        console.log('[ExtractIdAgen] Found idmember:', parsed.idmember);
+      }
+      return String(parsed.idmember);
+    }
+    
+    // If neither found, return null
+    if (shouldLog) {
+      console.log('[ExtractIdAgen] Neither idagen nor idmember found in parsed data');
+    }
     return null;
   } catch (error) {
     console.error('[ExtractIdAgen] Error parsing JSON:', error);
