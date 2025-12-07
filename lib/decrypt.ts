@@ -85,27 +85,32 @@ export function decrypt(
     const decodedAuthKey = Buffer.from(authKey, 'base64');
     
     // PHP: $decode64sha512 = base64_decode(hash('sha512', $decode64));
-    // This is confusing. Let's try different interpretations:
     // 
-    // Interpretation 1: hash('sha512', $decode64, TRUE) returns binary directly
-    // This is the most likely correct interpretation
+    // Analysis of PHP code:
+    // - hash('sha512', $decode64) returns HEX STRING (128 characters)
+    // - base64_decode() on hex string doesn't make mathematical sense
+    // 
+    // Most likely the PHP code should be:
+    // $decode64sha512 = hash('sha512', $decode64, TRUE); // returns binary (64 bytes)
+    // 
+    // But let's try the literal interpretation first:
+    // 1. hash('sha512', $decode64) = hex string
+    // 2. Try to decode hex string as base64 (will likely fail or produce wrong data)
+    // 
+    // We'll try both: binary hash (correct) and literal interpretation (fallback)
+    const hexHash = crypto.createHash('sha512').update(decodedAuthKey).digest('hex');
     let decodedAuthKeySha512 = crypto
       .createHash('sha512')
       .update(decodedAuthKey)
-      .digest(); // Returns binary (64 bytes)
+      .digest(); // Binary (64 bytes) - most likely correct
     
-    // Try alternative: If PHP code really means base64_decode(hash('sha512', $decode64)):
-    // hash('sha512', $decode64) = hex string (128 chars), then base64_decode it
-    // This doesn't make sense mathematically, but let's try it as fallback
-    // Actually, maybe it means: base64_encode(hash('sha512', $decode64, TRUE)) then decode?
-    // Or maybe: hash('sha512', base64_encode($decode64), TRUE)?
-    
-    // Let's try: hash('sha512', $decode64) produces hex, then we base64 encode it, then decode
-    // No wait, that's still weird
-    
-    // Most likely: The PHP code has a typo and should be:
-    // $decode64sha512 = hash('sha512', $decode64, TRUE); // binary directly
-    // So we'll use binary directly (already done above)
+    // Try literal interpretation: base64_decode(hex_string)
+    let decodedAuthKeySha512Literal: Buffer | null = null;
+    try {
+      decodedAuthKeySha512Literal = Buffer.from(hexHash, 'base64');
+    } catch (e) {
+      // Will likely fail, but that's okay
+    }
     
     const decodedPrivateKey = Buffer.from(privateKey, 'base64');
 
@@ -163,33 +168,94 @@ export function decrypt(
         }
         hashHmacNew = hashHmacNewAlt;
       } else {
-        // Try alternative methods
+        // Try alternative: Interpret PHP code literally: base64_decode(hash('sha512', ...))
+        // hash('sha512', $decode64) = hex string, try to decode as base64
         if (shouldLog) {
-          console.log('[Decrypt] HMAC mismatch. Trying alternative methods...');
+          console.log('[Decrypt] Trying literal PHP interpretation: base64_decode(hash("sha512", ...))');
+          console.log('[Decrypt] Hex hash length:', hexHash.length);
         }
-        
-        // Alternative 1: Use raw decodedAuthKey directly (without SHA512) with rate size
-        const hashHmacAlt1 = hmacSha3512(opensslEnc, decodedAuthKey);
-        const hashHmacAlt1b = hmacSha3512Block72(opensslEnc, decodedAuthKey);
-        
-        if (crypto.timingSafeEqual(hashHmac, hashHmacAlt1)) {
+        try {
+          // Try to decode hex string as base64 (weird but let's try)
+          // This will likely produce invalid data, but let's see
+          const decodedFromHex = Buffer.from(hexHash, 'base64');
           if (shouldLog) {
-            console.log('[Decrypt] ✅ HMAC verified with alternative method 1a (raw key, rate size)');
+            console.log('[Decrypt] Decoded from hex (base64) length:', decodedFromHex.length);
+            console.log('[Decrypt] Decoded from hex (first 16 bytes):', decodedFromHex.subarray(0, 16).toString('hex'));
           }
-          hashHmacNew = hashHmacAlt1;
-        } else if (crypto.timingSafeEqual(hashHmac, hashHmacAlt1b)) {
-          if (shouldLog) {
-            console.log('[Decrypt] ✅ HMAC verified with alternative method 1b (raw key, block 72)');
+          const hashHmacAlt2 = hmacSha3512(opensslEnc, decodedFromHex);
+          const hashHmacAlt2b = hmacSha3512Block72(opensslEnc, decodedFromHex);
+          
+          if (crypto.timingSafeEqual(hashHmac, hashHmacAlt2)) {
+            if (shouldLog) {
+              console.log('[Decrypt] ✅ HMAC verified with literal PHP interpretation (rate 136)');
+            }
+            hashHmacNew = hashHmacAlt2;
+          } else if (crypto.timingSafeEqual(hashHmac, hashHmacAlt2b)) {
+            if (shouldLog) {
+              console.log('[Decrypt] ✅ HMAC verified with literal PHP interpretation (block 72)');
+            }
+            hashHmacNew = hashHmacAlt2b;
+          } else {
+            // Try using hex string directly as key (truncate to 64 bytes if needed)
+            if (shouldLog) {
+              console.log('[Decrypt] Trying hex string as key...');
+            }
+            const hexKeyBuffer = Buffer.from(hexHash, 'utf8').subarray(0, 64); // Use first 64 bytes
+            const hashHmacAlt3 = hmacSha3512(opensslEnc, hexKeyBuffer);
+            const hashHmacAlt3b = hmacSha3512Block72(opensslEnc, hexKeyBuffer);
+            
+            if (crypto.timingSafeEqual(hashHmac, hashHmacAlt3)) {
+              if (shouldLog) {
+                console.log('[Decrypt] ✅ HMAC verified with hex string key (rate 136)');
+              }
+              hashHmacNew = hashHmacAlt3;
+            } else if (crypto.timingSafeEqual(hashHmac, hashHmacAlt3b)) {
+              if (shouldLog) {
+                console.log('[Decrypt] ✅ HMAC verified with hex string key (block 72)');
+              }
+              hashHmacNew = hashHmacAlt3b;
+            } else {
+              // Try raw key as last resort
+              if (shouldLog) {
+                console.log('[Decrypt] Trying raw key as last resort...');
+              }
+              const hashHmacAlt1 = hmacSha3512(opensslEnc, decodedAuthKey);
+              const hashHmacAlt1b = hmacSha3512Block72(opensslEnc, decodedAuthKey);
+              
+              if (crypto.timingSafeEqual(hashHmac, hashHmacAlt1)) {
+                if (shouldLog) {
+                  console.log('[Decrypt] ✅ HMAC verified with raw key (rate 136)');
+                }
+                hashHmacNew = hashHmacAlt1;
+              } else if (crypto.timingSafeEqual(hashHmac, hashHmacAlt1b)) {
+                if (shouldLog) {
+                  console.log('[Decrypt] ✅ HMAC verified with raw key (block 72)');
+                }
+                hashHmacNew = hashHmacAlt1b;
+              } else {
+                console.error('[Decrypt] HMAC verification failed with all methods');
+                if (shouldLog) {
+                  console.error('[Decrypt] Expected HMAC:', hashHmac.toString('hex'));
+                  console.error('[Decrypt] Calculated HMAC (SHA512 binary, rate 136):', hashHmacNew.toString('hex'));
+                  console.error('[Decrypt] Calculated HMAC (SHA512 binary, block 72):', hashHmacNewAlt.toString('hex'));
+                  console.error('[Decrypt] Calculated HMAC (hex->base64, rate 136):', hashHmacAlt2.toString('hex'));
+                  console.error('[Decrypt] Calculated HMAC (hex->base64, block 72):', hashHmacAlt2b.toString('hex'));
+                  console.error('[Decrypt] Calculated HMAC (hex string, rate 136):', hashHmacAlt3.toString('hex'));
+                  console.error('[Decrypt] Calculated HMAC (hex string, block 72):', hashHmacAlt3b.toString('hex'));
+                  console.error('[Decrypt] Calculated HMAC (raw key, rate 136):', hashHmacAlt1.toString('hex'));
+                  console.error('[Decrypt] Calculated HMAC (raw key, block 72):', hashHmacAlt1b.toString('hex'));
+                }
+                return null;
+              }
+            }
           }
-          hashHmacNew = hashHmacAlt1b;
-        } else {
-          console.error('[Decrypt] HMAC verification failed with all methods');
+        } catch (e) {
+          console.error('[Decrypt] HMAC verification failed');
           if (shouldLog) {
+            console.error('[Decrypt] Error trying literal PHP interpretation:', e);
             console.error('[Decrypt] Expected HMAC:', hashHmac.toString('hex'));
-            console.error('[Decrypt] Calculated HMAC (SHA512 key, rate 136):', hashHmacNew.toString('hex'));
-            console.error('[Decrypt] Calculated HMAC (SHA512 key, block 72):', hashHmacNewAlt.toString('hex'));
-            console.error('[Decrypt] Calculated HMAC (raw key, rate 136):', hashHmacAlt1.toString('hex'));
-            console.error('[Decrypt] Calculated HMAC (raw key, block 72):', hashHmacAlt1b.toString('hex'));
+            console.error('[Decrypt] Calculated HMAC (SHA512 binary, rate 136):', hashHmacNew.toString('hex'));
+            console.error('[Decrypt] Calculated HMAC (SHA512 binary, block 72):', hashHmacNewAlt.toString('hex'));
           }
           return null;
         }
