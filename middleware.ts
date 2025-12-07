@@ -23,14 +23,32 @@ export function middleware(request: NextRequest) {
   // Skip API routes and static files
   if (request.nextUrl.pathname.startsWith('/api/') || 
       request.nextUrl.pathname.startsWith('/_next/') ||
-      request.nextUrl.pathname.startsWith('/favicon.ico')) {
+      request.nextUrl.pathname.startsWith('/favicon.ico') ||
+      request.nextUrl.pathname === '/' ||
+      request.nextUrl.pathname === '/success' ||
+      request.nextUrl.pathname === '/not-found') {
     return NextResponse.next();
   }
   
-  // Check if already on idagen page (avoid redirect loop)
+  // Payment method routes: vabank, ewallet, qris, retail
+  const paymentMethodRoutes = ['vabank', 'ewallet', 'qris', 'retail'];
   const pathSegments = request.nextUrl.pathname.split('/').filter(Boolean);
-  if (pathSegments.length === 1 && pathSegments[0] !== '') {
-    // Already on /[idagen] page, skip
+  const firstSegment = pathSegments[0];
+  const secondSegment = pathSegments[1];
+  
+  // Check if already on payment method with idagen page (e.g., /vabank/[idagen])
+  // If yes, skip middleware (already decoded)
+  if (paymentMethodRoutes.includes(firstSegment) && secondSegment) {
+    // Already on /[paymentMethod]/[idagen] page, skip
+    return NextResponse.next();
+  }
+  
+  // Check if on payment method route without idagen (e.g., /vabank)
+  // This is where we need to decode and redirect
+  const isPaymentMethodRoute = paymentMethodRoutes.includes(firstSegment) && !secondSegment;
+  
+  if (!isPaymentMethodRoute) {
+    // Not a payment method route, continue normally
     return NextResponse.next();
   }
   
@@ -47,9 +65,13 @@ export function middleware(request: NextRequest) {
     }
   }
   
-  // If no Authorization header, continue normally
+  // If no Authorization header and on payment method route, redirect to 404
   if (!authHeader) {
-    return NextResponse.next();
+    if (shouldLog) {
+      console.log('[Middleware] ❌ No Authorization header on payment method route, redirecting to 404');
+    }
+    const notFoundUrl = new URL('/not-found', request.url);
+    return NextResponse.redirect(notFoundUrl);
   }
   
   // Extract key and signature from Authorization header
@@ -58,9 +80,10 @@ export function middleware(request: NextRequest) {
   
   if (!match || !match[1] || !match[2]) {
     if (shouldLog) {
-      console.log('[Middleware] ❌ Failed to extract key and signature from Authorization header');
+      console.log('[Middleware] ❌ Failed to extract key and signature from Authorization header, redirecting to 404');
     }
-    return NextResponse.next();
+    const notFoundUrl = new URL('/not-found', request.url);
+    return NextResponse.redirect(notFoundUrl);
   }
   
   const key = match[1]; // This is the authkey
@@ -74,8 +97,9 @@ export function middleware(request: NextRequest) {
   const privateKey = process.env.DECRYPT_PRIVATE_KEY;
   
   if (!privateKey) {
-    console.error('[Middleware] ❌ Missing DECRYPT_PRIVATE_KEY environment variable');
-    return NextResponse.next();
+    console.error('[Middleware] ❌ Missing DECRYPT_PRIVATE_KEY environment variable, redirecting to 404');
+    const notFoundUrl = new URL('/not-found', request.url);
+    return NextResponse.redirect(notFoundUrl);
   }
   
   // Decrypt the signature using key as authkey
@@ -87,9 +111,10 @@ export function middleware(request: NextRequest) {
   
   if (!decryptedData) {
     if (shouldLog) {
-      console.log('[Middleware] ❌ Decryption failed');
+      console.log('[Middleware] ❌ Decryption failed, redirecting to 404');
     }
-    return NextResponse.next();
+    const notFoundUrl = new URL('/not-found', request.url);
+    return NextResponse.redirect(notFoundUrl);
   }
   
   // Extract idagen from decrypted JSON data
@@ -97,19 +122,20 @@ export function middleware(request: NextRequest) {
   
   if (!idagen) {
     if (shouldLog) {
-      console.log('[Middleware] ❌ Failed to extract idagen from decrypted data');
+      console.log('[Middleware] ❌ Failed to extract idagen from decrypted data, redirecting to 404');
       console.log('[Middleware] Decrypted data:', decryptedData);
     }
-    return NextResponse.next();
+    const notFoundUrl = new URL('/not-found', request.url);
+    return NextResponse.redirect(notFoundUrl);
   }
   
   if (shouldLog) {
     console.log('[Middleware] ✅ Successfully decoded, idagen:', idagen);
-    console.log('[Middleware] 🔄 Redirecting to /' + idagen);
+    console.log('[Middleware] 🔄 Redirecting to /' + firstSegment + '/' + idagen);
   }
   
-  // Redirect to /[idagen] page
-  const redirectUrl = new URL(`/${idagen}`, request.url);
+  // Redirect to /[paymentMethod]/[idagen] page
+  const redirectUrl = new URL(`/${firstSegment}/${idagen}`, request.url);
   return NextResponse.redirect(redirectUrl);
 }
 

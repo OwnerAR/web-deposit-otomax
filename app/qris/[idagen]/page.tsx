@@ -1,3 +1,4 @@
+import { notFound } from 'next/navigation';
 import DepositForm from '@/components/deposit/DepositForm';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
@@ -9,7 +10,18 @@ export const metadata: Metadata = {
   description: 'Deposit saldo menggunakan QRIS - scan QR code untuk pembayaran',
 };
 
-export default function QRISPage() {
+interface QRISPageProps {
+  params: {
+    idagen: string;
+  };
+}
+
+export default function QRISPage({ params }: QRISPageProps) {
+  // Validate idagen - redirect to 404 if not present
+  if (!params.idagen || params.idagen.trim() === '') {
+    notFound();
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
@@ -22,10 +34,14 @@ export default function QRISPage() {
             <p className="text-sm md:text-base text-gray-600 max-w-xl mx-auto">
               {getPageDescription('QRIS')}
             </p>
+            <p className="text-xs md:text-sm text-gray-500 mt-2">
+              Agent ID: {params.idagen}
+            </p>
           </div>
           <DepositForm 
             defaultPaymentMethod="QRIS" 
             hidePaymentMethodSelect={true}
+            idagen={params.idagen}
           />
         </div>
       </div>

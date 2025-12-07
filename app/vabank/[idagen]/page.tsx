@@ -1,3 +1,4 @@
+import { notFound } from 'next/navigation';
 import DepositForm from '@/components/deposit/DepositForm';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
@@ -9,7 +10,18 @@ export const metadata: Metadata = {
   description: 'Deposit saldo menggunakan Virtual Account BCA, BNI, BRI, MANDIRI, dan lainnya',
 };
 
-export default function VABankPage() {
+interface VABankPageProps {
+  params: {
+    idagen: string;
+  };
+}
+
+export default function VABankPage({ params }: VABankPageProps) {
+  // Validate idagen - redirect to 404 if not present
+  if (!params.idagen || params.idagen.trim() === '') {
+    notFound();
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
@@ -22,10 +34,14 @@ export default function VABankPage() {
             <p className="text-sm md:text-base text-gray-600 max-w-xl mx-auto">
               {getPageDescription('VA_BANK')}
             </p>
+            <p className="text-xs md:text-sm text-gray-500 mt-2">
+              Agent ID: {params.idagen}
+            </p>
           </div>
           <DepositForm 
             defaultPaymentMethod="VA_BANK" 
             hidePaymentMethodSelect={true}
+            idagen={params.idagen}
           />
         </div>
       </div>
