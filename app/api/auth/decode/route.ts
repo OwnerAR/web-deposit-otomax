@@ -25,10 +25,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/not-found', request.url));
     }
     
-    const privateKey = process.env.DECRYPT_PRIVATE_KEY;
+    // Get private key based on payment method
+    const privateKeyEnvKey = `DECRYPT_PRIVATE_KEY_${paymentMethod.toUpperCase()}`;
+    const privateKey = process.env[privateKeyEnvKey];
     
     if (!privateKey) {
-      console.error('[API /auth/decode] Missing DECRYPT_PRIVATE_KEY environment variable');
+      console.error(`[API /auth/decode] Missing ${privateKeyEnvKey} environment variable`);
       return NextResponse.redirect(new URL('/not-found', request.url));
     }
     

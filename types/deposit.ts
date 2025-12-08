@@ -1,4 +1,4 @@
-export type PaymentMethod = 'VA_BANK' | 'RETAIL' | 'QRIS' | 'EWALLET' | 'ALL';
+export type PaymentMethod = 'VABANK' | 'RETAIL' | 'QRIS' | 'EWALLET';
 
 export interface CreateDepositRequest {
   amount: number;
