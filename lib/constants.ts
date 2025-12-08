@@ -31,12 +31,6 @@ export const PAYMENT_METHODS: Array<{
     icon: Wallet,
     description: 'OVO, DANA, ShopeePay, dll',
   },
-  {
-    value: 'ALL',
-    label: 'Semua Metode',
-    icon: CreditCard,
-    description: 'Buat semua metode pembayaran',
-  },
 ];
 
 // Get min/max amount from environment variables with fallback defaults

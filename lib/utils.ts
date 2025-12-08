@@ -33,7 +33,6 @@ export function calculateFee(
     RETAIL: 2500,
     QRIS: (amount: number) => amount * 0.01, // 1%
     EWALLET: (amount: number) => amount * 0.015, // 1.5%
-    ALL: 0, // Will be calculated per method
   };
 
   // Use API fees if available, otherwise use fallback
@@ -44,7 +43,6 @@ export function calculateFee(
       RETAIL: 'retail',
       QRIS: 'qris',
       EWALLET: 'ewallet',
-      ALL: 'va_bank', // Default to va_bank for ALL, will be calculated per method
     };
 
     const methodKey = methodKeyMap[paymentMethod];

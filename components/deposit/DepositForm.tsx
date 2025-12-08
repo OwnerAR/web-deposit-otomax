@@ -24,7 +24,7 @@ interface DepositFormProps {
 }
 
 function DepositFormContent({ 
-  defaultPaymentMethod = 'ALL',
+  defaultPaymentMethod = 'VA_BANK',
   hidePaymentMethodSelect = false,
   idagen
 }: DepositFormProps) {

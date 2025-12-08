@@ -11,7 +11,6 @@ export const PAYMENT_ROUTES: Record<string, PaymentMethod> = {
   '/va': 'VA_BANK',
   '/qris': 'QRIS',
   '/retail': 'RETAIL',
-  '/': 'ALL', // Default: show all methods
 };
 
 /**
@@ -40,8 +39,8 @@ export function getPaymentMethodFromPath(pathname: string): PaymentMethod {
     return 'RETAIL';
   }
   
-  // Default to ALL
-  return 'ALL';
+  // Default to VA_BANK if no match
+  return 'VA_BANK';
 }
 
 /**
@@ -51,7 +50,7 @@ export function getPathFromPaymentMethod(method: PaymentMethod): string {
   const entry = Object.entries(PAYMENT_ROUTES).find(
     ([_, value]) => value === method
   );
-  return entry ? entry[0] : '/';
+  return entry ? entry[0] : '/vabank';
 }
 
 /**
@@ -63,7 +62,6 @@ export function getPageTitle(method: PaymentMethod): string {
     VA_BANK: 'Deposit via Virtual Account',
     QRIS: 'Deposit via QRIS',
     RETAIL: 'Deposit via Retail Outlet',
-    ALL: 'Deposit Saldo',
   };
   return titles[method] || 'Deposit Saldo';
 }
@@ -77,7 +75,6 @@ export function getPageDescription(method: PaymentMethod): string {
     VA_BANK: 'Deposit saldo menggunakan Virtual Account BCA, BNI, BRI, MANDIRI, dan lainnya',
     QRIS: 'Deposit saldo menggunakan QRIS - scan QR code untuk pembayaran',
     RETAIL: 'Deposit saldo melalui gerai retail seperti Alfamart dan Indomaret',
-    ALL: 'Deposit saldo dengan berbagai metode pembayaran melalui Xendit',
   };
   return descriptions[method] || 'Deposit saldo dengan berbagai metode pembayaran';
 }

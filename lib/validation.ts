@@ -31,7 +31,7 @@ export const depositFormSchema = z.object({
       (val) => !val || /^08\d{9,11}$/.test(val),
       'Format nomor telepon tidak valid (contoh: 081234567890)'
     ),
-  payment_method: z.enum(['VA_BANK', 'RETAIL', 'QRIS', 'EWALLET', 'ALL'], {
+  payment_method: z.enum(['VA_BANK', 'RETAIL', 'QRIS', 'EWALLET'], {
     required_error: 'Pilih metode pembayaran',
   }),
 });
