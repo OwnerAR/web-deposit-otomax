@@ -22,25 +22,30 @@ export default function RetailPage({ params }: RetailPageProps) {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 flex flex-col">
-      <div className="container mx-auto px-4 md:px-6 lg:px-8 py-6 md:py-8 lg:py-12 flex-1">
+    <main className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-gray-50 flex flex-col">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 md:py-12 lg:py-16 flex-1">
         <div className="max-w-2xl mx-auto">
-          <div className="text-center mb-6 md:mb-8">
-            <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 mb-2 md:mb-3">
-              {getPageTitle('RETAIL')}
-            </h1>
-            <p className="text-sm md:text-base text-gray-600 max-w-xl mx-auto">
+          <div className="text-center mb-8 sm:mb-10 md:mb-12 space-y-3 sm:space-y-4">
+            <div className="inline-block">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold text-gray-900 mb-3 sm:mb-4 bg-gradient-to-r from-primary-600 to-primary-700 bg-clip-text text-transparent">
+                {getPageTitle('RETAIL')}
+              </h1>
+            </div>
+            <p className="text-base sm:text-lg md:text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed">
               {getPageDescription('RETAIL')}
             </p>
-            <p className="text-xs md:text-sm text-gray-500 mt-2">
-              Agent ID: {params.idagen}
-            </p>
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur-sm rounded-full border border-gray-200 shadow-sm mt-4">
+              <span className="text-xs sm:text-sm text-gray-500 font-medium">Agent ID:</span>
+              <span className="text-xs sm:text-sm font-bold text-primary-600 font-mono">{params.idagen}</span>
+            </div>
           </div>
-          <DepositForm 
-            defaultPaymentMethod="RETAIL" 
-            hidePaymentMethodSelect={true}
-            idagen={params.idagen}
-          />
+          <div className="animate-in fade-in slide-in-from-bottom-6 duration-700">
+            <DepositForm 
+              defaultPaymentMethod="RETAIL" 
+              hidePaymentMethodSelect={true}
+              idagen={params.idagen}
+            />
+          </div>
         </div>
       </div>
       <Footer />

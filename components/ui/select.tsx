@@ -51,7 +51,7 @@ export const SelectTrigger = React.forwardRef<
       ref={ref}
       type="button"
       className={cn(
-        'flex h-11 w-full items-center justify-between rounded-lg border-2 border-gray-300 bg-white px-3 md:px-4 py-2.5 text-sm md:text-base transition-colors placeholder:text-gray-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-gray-50',
+        'flex h-12 sm:h-14 w-full items-center justify-between rounded-lg border-2 border-gray-300 bg-gray-50/50 px-4 sm:px-5 py-2.5 text-base sm:text-lg font-medium transition-all duration-300 placeholder:text-gray-400 hover:border-primary-300 hover:bg-white focus:outline-none focus:border-primary-500 focus:ring-4 focus:ring-primary-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-gray-50',
         className
       )}
       onClick={handleClick}
@@ -111,7 +111,7 @@ export function SelectContent({ className, children, ...props }: SelectContentPr
     <div
       ref={contentRef}
       className={cn(
-        'absolute z-50 mt-2 max-h-60 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-xl',
+        'absolute z-50 mt-2 max-h-80 w-full overflow-auto rounded-xl border-2 border-gray-200 bg-white shadow-2xl backdrop-blur-sm',
         className
       )}
       {...props}
@@ -150,8 +150,8 @@ export function SelectItem({
   return (
     <div
       className={cn(
-        'relative flex cursor-pointer select-none items-center rounded-md px-3 md:px-4 py-2.5 text-sm md:text-base outline-none hover:bg-primary-50 focus:bg-primary-50 transition-colors',
-        isSelected && 'bg-gray-100',
+        'relative flex cursor-pointer select-none items-center rounded-lg px-4 sm:px-5 py-3 sm:py-4 text-base outline-none hover:bg-primary-50 focus:bg-primary-50 transition-all duration-200',
+        isSelected && 'bg-primary-100 border-l-4 border-primary-500',
         className
       )}
       onClick={() => onSelect?.(value)}

@@ -112,8 +112,8 @@ function DepositFormContent({
   };
 
   return (
-    <Card className="p-4 md:p-6 lg:p-8">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 md:space-y-6">
+    <Card className="p-6 sm:p-8 md:p-10 lg:p-12 shadow-xl border-0 bg-white/95 backdrop-blur-sm">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 sm:space-y-7 md:space-y-8">
         <AmountInput
           {...register('amount', { 
             valueAsNumber: true,
@@ -143,21 +143,35 @@ function DepositFormContent({
         )}
 
         {calculatedAmount && (
-          <PaymentSummary
-            baseAmount={amount}
-            totalAmount={calculatedAmount}
-            paymentMethod={paymentMethod}
-          />
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <PaymentSummary
+              baseAmount={amount}
+              totalAmount={calculatedAmount}
+              paymentMethod={paymentMethod}
+            />
+          </div>
         )}
 
-        <Button
-          type="submit"
-          disabled={isLoading}
-          className="w-full"
-          size="lg"
-        >
-          {isLoading ? 'Memproses...' : 'Buat Invoice'}
-        </Button>
+        <div className="pt-2">
+          <Button
+            type="submit"
+            disabled={isLoading}
+            className="w-full h-14 sm:h-16 text-base sm:text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
+            size="lg"
+          >
+            {isLoading ? (
+              <span className="flex items-center gap-2">
+                <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Memproses...
+              </span>
+            ) : (
+              'Buat Invoice'
+            )}
+          </Button>
+        </div>
       </form>
     </Card>
   );

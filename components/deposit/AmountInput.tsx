@@ -39,29 +39,32 @@ const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
     };
 
     return (
-      <div className="space-y-2 md:space-y-2.5">
-        <Label htmlFor="amount" className="text-sm md:text-base font-semibold text-gray-900">
+      <div className="space-y-3">
+        <Label htmlFor="amount" className="text-sm sm:text-base font-semibold text-gray-900 block">
           Nominal Deposit
         </Label>
-        <div className="relative">
-          <span className="absolute left-4 md:left-5 top-1/2 -translate-y-1/2 text-gray-600 font-semibold text-base md:text-lg z-10 pointer-events-none">
+        <div className="relative group">
+          <span className="absolute left-4 sm:left-5 top-1/2 -translate-y-1/2 text-gray-700 font-semibold text-base sm:text-lg z-10 pointer-events-none transition-colors duration-200 group-focus-within:text-primary-600">
             Rp
           </span>
           <Input
             id="amount"
             ref={ref}
             type="number"
-            placeholder="100000"
+            placeholder="100.000"
             className={cn(
-              'pl-12 md:pl-14 pr-4 md:pr-5',
-              'h-12 md:h-14',
-              'text-base md:text-lg',
-              'font-normal',
+              'pl-14 sm:pl-16 pr-4 sm:pr-5',
+              'h-12 sm:h-14',
+              'text-base sm:text-lg',
+              'font-medium',
               'border-2',
+              'bg-gray-50/50',
               isFocused 
-                ? 'border-primary-500 ring-2 ring-primary-200 shadow-sm' 
-                : 'border-gray-300 hover:border-gray-400',
-              'transition-all duration-200',
+                ? 'border-primary-500 ring-4 ring-primary-100 shadow-lg bg-white' 
+                : 'border-gray-300 hover:border-primary-300 hover:bg-white',
+              'transition-all duration-300',
+              'focus:bg-white',
+              error && 'border-error-500 ring-error-100',
               className
             )}
             min={MIN_AMOUNT}
@@ -74,10 +77,10 @@ const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
           />
         </div>
         {error && (
-          <p className="text-sm text-error-600 font-medium mt-1">{error}</p>
+          <p className="text-sm text-error-600 font-medium mt-1.5 animate-in fade-in slide-in-from-top-1">{error}</p>
         )}
-        <p className="text-xs md:text-sm text-gray-500 font-medium">
-          Minimum: {formatCurrency(MIN_AMOUNT)} | Maximum: {formatCurrency(MAX_AMOUNT)}
+        <p className="text-xs sm:text-sm text-gray-500 font-medium">
+          Minimum: <span className="font-semibold text-gray-700">{formatCurrency(MIN_AMOUNT)}</span> | Maximum: <span className="font-semibold text-gray-700">{formatCurrency(MAX_AMOUNT)}</span>
         </p>
       </div>
     );
